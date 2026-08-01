@@ -1,9 +1,13 @@
 """
-Backup dei prodotti WooCommerce (categoria configurata in .env) e delle relative immagini.
-Salva:
-  - backup/images/<product_id>_<sku>.jpg  -> immagine originale
-  - backup/manifest/manifest.json         -> elenco prodotti con id, nome, sku, url immagine originale, path locale
+Backup dei prodotti WooCommerce (per categoria) e delle relative immagini.
+Salva, per ogni categoria elaborata:
+  - backup/<categoria>/images/<product_id>_<sku>.png  -> immagine originale
+  - backup/<categoria>/manifest/manifest.json          -> id, nome, sku, url immagine originale, path locale
 Non modifica nulla su WordPress: e' solo lettura + salvataggio locale.
+
+Uso:
+  python app/backup.py                          # usa WC_CATEGORY_SLUG da .env
+  python app/backup.py color-gel acrygel semi-permanente   # una o piu' categorie esplicite
 """
 import os
 import json
@@ -21,12 +25,6 @@ load_dotenv(ROOT / ".env")
 SITE_URL = os.environ["WC_SITE_URL"]
 CONSUMER_KEY = os.environ["WC_CONSUMER_KEY"]
 CONSUMER_SECRET = os.environ["WC_CONSUMER_SECRET"]
-CATEGORY_SLUG = os.environ["WC_CATEGORY_SLUG"]
-
-BACKUP_IMAGES_DIR = ROOT / "backup" / "images"
-BACKUP_MANIFEST_DIR = ROOT / "backup" / "manifest"
-BACKUP_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-BACKUP_MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
 
 wcapi = API(
     url=SITE_URL,
@@ -76,9 +74,15 @@ def download_image(url: str, dest: Path):
     dest.write_bytes(r.content)
 
 
-def main():
-    print(f"Cerco categoria '{CATEGORY_SLUG}'...")
-    category_id = find_category_id(CATEGORY_SLUG)
+def backup_category(category_slug: str):
+    images_dir = ROOT / "backup" / category_slug / "images"
+    manifest_dir = ROOT / "backup" / category_slug / "manifest"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n=== Categoria '{category_slug}' ===")
+    print(f"Cerco categoria '{category_slug}'...")
+    category_id = find_category_id(category_slug)
     print(f"Categoria trovata (id={category_id}). Scarico elenco prodotti...")
 
     products = fetch_products(category_id)
@@ -101,7 +105,7 @@ def main():
         ext = Path(image_url.split("?")[0]).suffix or ".jpg"
 
         filename = f"{pid}_{safe_filename(sku or name)}{ext}"
-        dest_path = BACKUP_IMAGES_DIR / filename
+        dest_path = images_dir / filename
 
         try:
             download_image(image_url, dest_path)
@@ -112,6 +116,7 @@ def main():
 
         manifest.append({
             "product_id": pid,
+            "category": category_slug,
             "name": name,
             "sku": sku,
             "permalink": p.get("permalink"),
@@ -122,11 +127,17 @@ def main():
         })
         print(f"  [{status}] {pid} - {name}")
 
-    manifest_path = BACKUP_MANIFEST_DIR / "manifest.json"
+    manifest_path = manifest_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\nBackup completato: {len(manifest)} prodotti salvati.")
+    print(f"Backup completato per '{category_slug}': {len(manifest)} prodotti salvati.")
     print(f"Manifest: {manifest_path}")
-    print(f"Immagini: {BACKUP_IMAGES_DIR}")
+    print(f"Immagini: {images_dir}")
+
+
+def main():
+    categories = sys.argv[1:] or [os.environ["WC_CATEGORY_SLUG"]]
+    for slug in categories:
+        backup_category(slug)
 
 
 if __name__ == "__main__":

@@ -10,24 +10,27 @@ base al vuoto piu' ampio tra un soggetto e l'altro. Ogni gruppo viene poi
 scalato rispettando sia altezza che larghezza della zona (contain-fit), cosi'
 non viene mai tagliato.
 
-Input:  backup/manifest/manifest.json + backup/images/*
-Output: processed/<product_id>_<sku>.png  (layout uniforme)
-        processed/preview/<product_id>_<sku>_compare.png (originale vs risultato, per revisione)
+Uso:
+  python app/process.py                          # usa WC_CATEGORY_SLUG da .env
+  python app/process.py color-gel acrygel semi-permanente   # una o piu' categorie esplicite
+
+Input:  backup/<categoria>/manifest/manifest.json + backup/<categoria>/images/*
+Output: processed/<categoria>/<product_id>_<sku>.png  (layout uniforme)
+        processed/<categoria>/preview/<product_id>_<sku>.png (originale vs risultato, per revisione)
 """
 import json
+import os
+import sys
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 from rembg import remove, new_session
 from scipy import ndimage
+from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
-MANIFEST_PATH = ROOT / "backup" / "manifest" / "manifest.json"
-PROCESSED_DIR = ROOT / "processed"
-PREVIEW_DIR = PROCESSED_DIR / "preview"
-PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+load_dotenv(ROOT / ".env")
 
 # Canvas di output uniforme per tutti i prodotti
 CANVAS_W, CANVAS_H = 1600, 1000
@@ -119,7 +122,7 @@ def paste_contain_fit(canvas: Image.Image, subject_rgba: Image.Image, bbox, zone
     canvas.alpha_composite(resized, (paste_x, paste_y))
 
 
-def process_one(entry: dict) -> Path:
+def process_one(entry: dict, processed_dir: Path, preview_dir: Path) -> Path:
     src_path = ROOT / entry["backup_local_path"]
     img = Image.open(src_path).convert("RGB")
 
@@ -139,35 +142,48 @@ def process_one(entry: dict) -> Path:
         paste_contain_fit(canvas, cut, union_bbox(right_group), RIGHT_ZONE)
 
     out_name = Path(entry["backup_local_path"]).stem + ".png"
-    out_path = PROCESSED_DIR / out_name
+    out_path = processed_dir / out_name
     canvas.convert("RGB").save(out_path, quality=95)
 
     # Preview affiancata originale/risultato per revisione rapida
     preview = Image.new("RGB", (img.width + CANVAS_W, max(img.height, CANVAS_H)), (240, 240, 240))
     preview.paste(img, (0, 0))
     preview.paste(canvas.convert("RGB"), (img.width, 0))
-    preview.save(PREVIEW_DIR / out_name)
+    preview.save(preview_dir / out_name)
 
     return out_path
 
 
-def main():
-    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+def process_category(category_slug: str):
+    manifest_path = ROOT / "backup" / category_slug / "manifest" / "manifest.json"
+    processed_dir = ROOT / "processed" / category_slug
+    preview_dir = processed_dir / "preview"
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    preview_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n=== Elaborazione categoria '{category_slug}' ===")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     results = []
     for entry in manifest:
         if entry["status"] != "ok":
             continue
         try:
-            out_path = process_one(entry)
+            out_path = process_one(entry, processed_dir, preview_dir)
             print(f"[ok] {entry['product_id']} - {entry['name']} -> {out_path.name}")
             results.append({**entry, "processed_path": str(out_path.relative_to(ROOT)), "process_status": "ok"})
         except Exception as e:
             print(f"[ERRORE] {entry['product_id']} - {entry['name']}: {e}")
             results.append({**entry, "process_status": f"errore: {e}"})
 
-    out_manifest = ROOT / "processed" / "process_manifest.json"
+    out_manifest = processed_dir / "process_manifest.json"
     out_manifest.write_text(json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\nFatto. Manifest elaborazione: {out_manifest}")
+    print(f"Fatto. Manifest elaborazione: {out_manifest}")
+
+
+def main():
+    categories = sys.argv[1:] or [os.environ["WC_CATEGORY_SLUG"]]
+    for slug in categories:
+        process_category(slug)
 
 
 if __name__ == "__main__":

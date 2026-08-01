@@ -17,31 +17,56 @@ pip install -r requirements.txt
 
 Le credenziali WooCommerce sono gia' in `.env` (non versionato su git).
 
-## Flusso di lavoro
+## Flusso di lavoro (per categoria)
+
+Tutti gli script accettano una o piu' categorie come argomento (slug WooCommerce,
+es. `color-gel`, `acrygel`, `semi-permanente`). Senza argomenti usano `WC_CATEGORY_SLUG`
+dal `.env`.
 
 1. **Backup** (scarica tutte le foto originali + dati prodotto, non modifica nulla):
    ```
-   python app/backup.py
+   python app/backup.py color-gel acrygel semi-permanente
    ```
-   Risultato: `backup/images/` (foto originali) e `backup/manifest/manifest.json`.
+   Risultato per ogni categoria: `backup/<categoria>/images/` e `backup/<categoria>/manifest/manifest.json`.
 
 2. **Elaborazione** (cutout + ricomposizione uniforme, salva solo in locale):
    ```
-   python app/process.py
+   python app/process.py color-gel acrygel semi-permanente
    ```
-   Risultato: `processed/<id>.png` (immagine finale) e `processed/preview/<id>.png`
-   (originale affiancato al risultato, per revisione rapida).
+   Risultato per ogni categoria: `processed/<categoria>/<id>.png` (immagine finale) e
+   `processed/<categoria>/preview/<id>.png` (originale affiancato al risultato).
 
-3. **Revisione** (dashboard web locale per approvare/rifiutare ogni immagine):
+3a. **Revisione locale (per te)**: dashboard web con tutte le categorie a tab:
    ```
    python app/dashboard.py
    ```
-   Apri http://127.0.0.1:5000 nel browser. Approva o rifiuta ogni prodotto.
+   Apri http://127.0.0.1:5000 nel browser.
 
-4. **Upload** (carica su WooCommerce SOLO le immagini approvate):
+3b. **Revisione dalla cliente (sito statico su GitHub Pages)**:
    ```
-   python app/upload.py --dry-run   # verifica cosa farebbe, senza caricare
-   python app/upload.py             # carica davvero
+   python app/build_static_site.py
+   ```
+   Genera/aggiorna la cartella `docs/` (pubblicata automaticamente da GitHub Pages
+   se abilitato nelle impostazioni del repo, branch `master`/`main`, cartella `/docs`).
+   La cliente apre il link, approva/rifiuta ogni prodotto (per categoria). Per ogni
+   prodotto puo' anche scaricare la foto attuale o caricare una SUA foto alternativa
+   (se non le piace nessuna delle due proposte). Alla fine scarica un file
+   `revisione_YYYY-MM-DD.json` e te lo invia. Guida per lei: `docs/guida.html`
+   (o `GUIDA_CLIENTE.md`).
+
+   Quando ricevi il file, importalo per aggiornare lo stato di revisione:
+   ```
+   python app/import_reviews.py percorso/al/file/revisione_2026-08-01.json
+   ```
+   Questo aggiorna `processed/<categoria>/review_state.json` e salva eventuali foto
+   personalizzate della cliente in `processed/<categoria>/client_overrides/`.
+   Poi rielabora solo i prodotti rifiutati e rigenera il sito statico per la
+   nuova revisione.
+
+4. **Upload** (carica su WooCommerce SOLO le immagini approvate, per categoria):
+   ```
+   python app/upload.py color-gel --dry-run   # verifica cosa farebbe, senza caricare
+   python app/upload.py color-gel acrygel semi-permanente   # carica davvero
    ```
 
 ## Recupero in caso di errore

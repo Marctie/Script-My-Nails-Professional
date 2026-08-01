@@ -5,8 +5,8 @@ Ogni immagine viene caricata nella Media Library di WordPress e poi impostata
 come immagine principale del prodotto corrispondente.
 
 Uso:
-  python app/upload.py            # carica tutte le approvate non ancora caricate
-  python app/upload.py --dry-run  # mostra solo cosa farebbe, senza caricare nulla
+  python app/upload.py <categoria> [--dry-run]
+  python app/upload.py color-gel acrygel semi-permanente --dry-run
 """
 import base64
 import json
@@ -25,10 +25,6 @@ SITE_URL = os.environ["WC_SITE_URL"].rstrip("/")
 CONSUMER_KEY = os.environ["WC_CONSUMER_KEY"]
 CONSUMER_SECRET = os.environ["WC_CONSUMER_SECRET"]
 
-PROCESS_MANIFEST = ROOT / "processed" / "process_manifest.json"
-REVIEW_STATE_PATH = ROOT / "processed" / "review_state.json"
-UPLOAD_LOG_PATH = ROOT / "processed" / "upload_log.json"
-
 wcapi = API(
     url=SITE_URL,
     consumer_key=CONSUMER_KEY,
@@ -38,15 +34,19 @@ wcapi = API(
 )
 
 
+CONTENT_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
+
+
 def upload_to_media_library(image_path: Path) -> int:
     """Carica il file su WP Media Library via REST API, ritorna l'id media."""
     media_endpoint = f"{SITE_URL}/wp-json/wp/v2/media"
     with open(image_path, "rb") as f:
         file_bytes = f.read()
 
+    content_type = CONTENT_TYPES.get(image_path.suffix.lower(), "image/jpeg")
     headers = {
         "Content-Disposition": f'attachment; filename="{image_path.name}"',
-        "Content-Type": "image/png",
+        "Content-Type": content_type,
     }
     auth = (CONSUMER_KEY, CONSUMER_SECRET)
     resp = requests.post(media_endpoint, headers=headers, data=file_bytes, auth=auth, timeout=60)
@@ -60,29 +60,43 @@ def set_product_image(product_id: int, media_id: int):
     return resp.json()
 
 
-def main():
-    dry_run = "--dry-run" in sys.argv
+def upload_category(category: str, dry_run: bool):
+    processed_dir = ROOT / "processed" / category
+    process_manifest_path = processed_dir / "process_manifest.json"
+    review_state_path = processed_dir / "review_state.json"
+    upload_log_path = processed_dir / "upload_log.json"
 
-    manifest = json.loads(PROCESS_MANIFEST.read_text(encoding="utf-8"))
-    review_state = json.loads(REVIEW_STATE_PATH.read_text(encoding="utf-8")) if REVIEW_STATE_PATH.exists() else {}
-    upload_log = json.loads(UPLOAD_LOG_PATH.read_text(encoding="utf-8")) if UPLOAD_LOG_PATH.exists() else {}
-
-    approved = [
-        e for e in manifest
-        if e.get("process_status") == "ok"
-        and review_state.get(str(e["product_id"])) == "approved"
-        and str(e["product_id"]) not in upload_log
-    ]
-
-    if not approved:
-        print("Nessuna immagine approvata da caricare (o gia' tutte caricate in precedenza).")
+    if not process_manifest_path.exists():
+        print(f"[{category}] Nessun manifest elaborato trovato, salto (esegui prima process.py).")
         return
 
-    print(f"Da caricare: {len(approved)} prodotti.")
-    for entry in approved:
+    manifest = json.loads(process_manifest_path.read_text(encoding="utf-8"))
+    review_state = json.loads(review_state_path.read_text(encoding="utf-8")) if review_state_path.exists() else {}
+    upload_log = json.loads(upload_log_path.read_text(encoding="utf-8")) if upload_log_path.exists() else {}
+    overrides_dir = processed_dir / "client_overrides"
+
+    to_upload = []
+    for e in manifest:
+        pid = str(e["product_id"])
+        if pid in upload_log:
+            continue
+        status = review_state.get(pid)
+        if status == "approved" and e.get("process_status") == "ok":
+            to_upload.append((e, ROOT / e["processed_path"]))
+        elif status == "custom":
+            override_matches = list(overrides_dir.glob(f"{pid}.*")) if overrides_dir.exists() else []
+            if override_matches:
+                to_upload.append((e, override_matches[0]))
+            else:
+                print(f"  [ATTENZIONE] Prodotto {pid} segnato 'custom' ma nessuna foto trovata in {overrides_dir}")
+
+    print(f"\n=== Categoria '{category}': {len(to_upload)} da caricare ===")
+    if not to_upload:
+        return
+
+    for entry, image_path in to_upload:
         pid = entry["product_id"]
         name = entry["name"]
-        image_path = ROOT / entry["processed_path"]
 
         if dry_run:
             print(f"  [DRY-RUN] Caricherei {image_path.name} su prodotto {pid} ({name})")
@@ -97,9 +111,18 @@ def main():
             upload_log[str(pid)] = {"status": f"errore: {e}"}
             print(f"  [ERRORE] {pid} - {name}: {e}")
 
-        UPLOAD_LOG_PATH.write_text(json.dumps(upload_log, indent=2, ensure_ascii=False), encoding="utf-8")
+        upload_log_path.write_text(json.dumps(upload_log, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print("\nFatto. Log upload:", UPLOAD_LOG_PATH)
+
+def main():
+    dry_run = "--dry-run" in sys.argv
+    categories = [a for a in sys.argv[1:] if not a.startswith("--")]
+    if not categories:
+        print("Uso: python app/upload.py <categoria> [<categoria2> ...] [--dry-run]")
+        sys.exit(1)
+
+    for category in categories:
+        upload_category(category, dry_run)
 
 
 if __name__ == "__main__":
