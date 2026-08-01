@@ -83,6 +83,13 @@ def write_index_html():
     (DOCS_ROOT / "styles.css").write_text(STYLES_CSS, encoding="utf-8")
     (DOCS_ROOT / "guida.html").write_text(GUIDA_HTML, encoding="utf-8")
 
+    config_path = DOCS_ROOT / "config.js"
+    if not config_path.exists():
+        config_path.write_text(DEFAULT_CONFIG_JS, encoding="utf-8")
+        print(f"Creato {config_path} (vuoto, da riempire con URL/token del server live).")
+    else:
+        print(f"{config_path} gia' presente, non sovrascritto (URL/token preservati).")
+
 
 INDEX_HTML = """<!doctype html>
 <html lang="it">
@@ -112,9 +119,20 @@ INDEX_HTML = """<!doctype html>
   <div class="stats" id="stats"></div>
   <div class="grid" id="grid"></div>
 
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
+"""
+
+# config.js NON viene sovrascritto se esiste gia' (build_static_site() lo scrive solo
+# la prima volta), cosi' l'URL/token del server live impostati a mano sopravvivono
+# alle rigenerazioni successive del sito.
+DEFAULT_CONFIG_JS = """// Configurazione del server live (Termux/PC) che pubblica su WooCommerce.
+// Lascia LIVE_SERVER_URL vuoto per usare SOLO il salvataggio locale + export manuale.
+// Esempio: "https://qualcosa.trycloudflare.com"
+const LIVE_SERVER_URL = "";
+const LIVE_SERVER_TOKEN = "";
 """
 
 STYLES_CSS = """
@@ -161,6 +179,7 @@ button.act { flex: 1; padding: 10px; border: none; border-radius: 4px; cursor: p
 .download-link:hover { background: #e3f2fd; }
 .upload-label { color: #0d47a1; border: 1px solid #0d47a1; padding: 6px 10px; border-radius: 4px; cursor: pointer; background: #e3f2fd; }
 .upload-label:hover { background: #bbdefb; }
+.publish-state { font-size: 12px; color: #666; margin: -4px 0 8px; font-style: italic; }
 """
 
 APP_JS = """
@@ -186,11 +205,43 @@ function saveReviewData(category, productId, data) {
   localStorage.setItem(reviewKey(category, productId), JSON.stringify(data));
 }
 
+async function submitToLiveServer(category, productId, status, customImage) {
+  if (!LIVE_SERVER_URL) return; // nessun server configurato: resta solo salvataggio locale
+
+  const data = getReviewData(category, productId);
+  data.publishState = "invio in corso...";
+  saveReviewData(category, productId, data);
+  renderGrid();
+
+  try {
+    const res = await fetch(`${LIVE_SERVER_URL}/api/submit`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Review-Token": LIVE_SERVER_TOKEN || "",
+      },
+      body: JSON.stringify({ category, product_id: productId, status, customImage }),
+    });
+    const result = await res.json();
+    const latest = getReviewData(category, productId);
+    latest.publishState = result.ok
+      ? (result.published ? "pubblicato sul sito" : "registrato")
+      : `errore: ${result.error || "sconosciuto"}`;
+    saveReviewData(category, productId, latest);
+  } catch (e) {
+    const latest = getReviewData(category, productId);
+    latest.publishState = "server non raggiungibile (salvato solo qui)";
+    saveReviewData(category, productId, latest);
+  }
+  renderGrid();
+}
+
 function setReview(category, productId, status) {
   const data = getReviewData(category, productId);
   data.status = status;
   saveReviewData(category, productId, data);
   renderGrid();
+  submitToLiveServer(category, productId, status, data.customImage);
 }
 
 function setCustomImage(category, productId, file) {
@@ -202,6 +253,7 @@ function setCustomImage(category, productId, file) {
     data.customImageName = file.name;
     saveReviewData(category, productId, data);
     renderGrid();
+    submitToLiveServer(category, productId, "custom", data.customImage);
   };
   reader.readAsDataURL(file);
 }
@@ -263,10 +315,15 @@ function renderGrid() {
       ? `<figure><img src="${data.customImage}" alt="tua foto"><figcaption>La tua foto (${data.customImageName || ""})</figcaption></figure>`
       : "";
 
+    const publishState = data.publishState
+      ? `<div class="publish-state">${data.publishState}</div>`
+      : "";
+
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
       <div class="name">${item.name} <span class="badge ${status}">${status}</span></div>
+      ${publishState}
       <div class="images">
         <figure>
           <img src="${item.original_image}" alt="originale">

@@ -69,6 +69,37 @@ dal `.env`.
    python app/upload.py color-gel acrygel semi-permanente   # carica davvero
    ```
 
+## Pubblicazione automatica in tempo reale (live_server.py)
+
+Invece del flusso manuale sopra, `app/live_server.py` e' un server che sta sempre acceso
+(pensato per girare su Termux, tablet Android sempre connesso, come i bot Telegram gia' in
+uso) e riceve in tempo reale le scelte della cliente dal sito pubblico, pubblicando subito
+su WooCommerce. La chiave segreta resta sempre sul dispositivo che fa girare il server,
+mai nella pagina pubblica.
+
+Setup:
+1. Sul dispositivo che fara' girare il server (Termux o PC), imposta `REVIEW_API_TOKEN`
+   nel `.env` (un token a caso, gia' generato in questo progetto).
+2. Avvia: `python app/live_server.py` (oppure `bash scripts/start.sh` su Termux).
+   Controllo: `bash scripts/status.sh`, `bash scripts/stop.sh`, `bash scripts/restart.sh`.
+3. Esponi la porta 5001 con un tunnel pubblico (es. Cloudflare Tunnel o servizio simile
+   disponibile su Termux) per ottenere un URL raggiungibile da internet.
+4. Apri `docs/config.js` e imposta:
+   ```js
+   const LIVE_SERVER_URL = "https://tuo-tunnel.esempio.com";
+   const LIVE_SERVER_TOKEN = "lo-stesso-valore-di-REVIEW_API_TOKEN";
+   ```
+   Questo file NON viene sovrascritto da `build_static_site.py` una volta creato, quindi
+   resta configurato anche rigenerando il sito.
+5. Committa e pusha: la pagina pubblica ora invia automaticamente ogni scelta al server,
+   che pubblica subito su WooCommerce.
+
+Monitoraggio (per integrare con una dashboard esterna):
+- `GET /api/health` -> stato + uptime
+- `GET /api/stats` -> contatori (richieste, pubblicazioni, rifiuti, errori) ed eventi recenti
+- Log leggibile in `logs/live_server.log`
+- PID in `logs/live_server.pid` (usato dagli script start/stop/restart in `scripts/`)
+
 ## Recupero in caso di errore
 
 Tutte le foto originali restano in `backup/images/`, con la mappatura prodotto <-> foto

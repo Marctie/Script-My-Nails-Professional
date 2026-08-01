@@ -21,11 +21,43 @@ function saveReviewData(category, productId, data) {
   localStorage.setItem(reviewKey(category, productId), JSON.stringify(data));
 }
 
+async function submitToLiveServer(category, productId, status, customImage) {
+  if (!LIVE_SERVER_URL) return; // nessun server configurato: resta solo salvataggio locale
+
+  const data = getReviewData(category, productId);
+  data.publishState = "invio in corso...";
+  saveReviewData(category, productId, data);
+  renderGrid();
+
+  try {
+    const res = await fetch(`${LIVE_SERVER_URL}/api/submit`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Review-Token": LIVE_SERVER_TOKEN || "",
+      },
+      body: JSON.stringify({ category, product_id: productId, status, customImage }),
+    });
+    const result = await res.json();
+    const latest = getReviewData(category, productId);
+    latest.publishState = result.ok
+      ? (result.published ? "pubblicato sul sito" : "registrato")
+      : `errore: ${result.error || "sconosciuto"}`;
+    saveReviewData(category, productId, latest);
+  } catch (e) {
+    const latest = getReviewData(category, productId);
+    latest.publishState = "server non raggiungibile (salvato solo qui)";
+    saveReviewData(category, productId, latest);
+  }
+  renderGrid();
+}
+
 function setReview(category, productId, status) {
   const data = getReviewData(category, productId);
   data.status = status;
   saveReviewData(category, productId, data);
   renderGrid();
+  submitToLiveServer(category, productId, status, data.customImage);
 }
 
 function setCustomImage(category, productId, file) {
@@ -37,6 +69,7 @@ function setCustomImage(category, productId, file) {
     data.customImageName = file.name;
     saveReviewData(category, productId, data);
     renderGrid();
+    submitToLiveServer(category, productId, "custom", data.customImage);
   };
   reader.readAsDataURL(file);
 }
@@ -98,10 +131,15 @@ function renderGrid() {
       ? `<figure><img src="${data.customImage}" alt="tua foto"><figcaption>La tua foto (${data.customImageName || ""})</figcaption></figure>`
       : "";
 
+    const publishState = data.publishState
+      ? `<div class="publish-state">${data.publishState}</div>`
+      : "";
+
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
       <div class="name">${item.name} <span class="badge ${status}">${status}</span></div>
+      ${publishState}
       <div class="images">
         <figure>
           <img src="${item.original_image}" alt="originale">
