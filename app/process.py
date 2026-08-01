@@ -3,6 +3,13 @@ Pipeline "Opzione A": riusa boccetta + unghia REALI di ogni foto originale,
 le isola (cutout, senza IA generativa) e le ricompone in un layout uniforme
 su sfondo bianco. Nessuna alterazione di forma/testo/colore: solo riposizionamento.
 
+A differenza di un taglio "a meta' fissa" (che rischia di tagliare la boccetta
+in due), qui il cutout viene fatto sull'immagine INTERA, poi i soggetti isolati
+vengono raggruppati per posizione (sinistra = boccetta, destra = unghia/e) in
+base al vuoto piu' ampio tra un soggetto e l'altro. Ogni gruppo viene poi
+scalato rispettando sia altezza che larghezza della zona (contain-fit), cosi'
+non viene mai tagliato.
+
 Input:  backup/manifest/manifest.json + backup/images/*
 Output: processed/<product_id>_<sku>.png  (layout uniforme)
         processed/preview/<product_id>_<sku>_compare.png (originale vs risultato, per revisione)
@@ -10,8 +17,10 @@ Output: processed/<product_id>_<sku>.png  (layout uniforme)
 import json
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 from rembg import remove, new_session
+from scipy import ndimage
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_PATH = ROOT / "backup" / "manifest" / "manifest.json"
@@ -24,49 +33,85 @@ PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
 CANVAS_W, CANVAS_H = 1600, 1000
 BG_COLOR = (255, 255, 255, 255)
 
-# Divisione orizzontale: boccetta a sinistra, unghia a destra (come nelle foto attuali)
-LEFT_ZONE = (0, 0, CANVAS_W // 2, CANVAS_H)
-RIGHT_ZONE = (CANVAS_W // 2, 0, CANVAS_W, CANVAS_H)
+LEFT_ZONE = (40, 40, CANVAS_W // 2 - 20, CANVAS_H - 40)
+RIGHT_ZONE = (CANVAS_W // 2 + 20, 40, CANVAS_W - 40, CANVAS_H - 40)
 
-# Margini e altezza target di ciascun soggetto rispetto alla propria zona
-SUBJECT_HEIGHT_RATIO = 0.85
+# Margine di sicurezza: il soggetto occupa al massimo questa frazione della zona
+CONTAIN_RATIO = 0.92
+
+# Componenti piu' piccole di questa frazione dell'area totale del soggetto principale
+# sono considerate rumore del cutout e scartate
+MIN_COMPONENT_AREA_RATIO = 0.01
 
 _session = new_session("isnet-general-use")
 
 
-def cutout(image: Image.Image) -> Image.Image:
-    """Rimuove lo sfondo, ritorna immagine RGBA con soggetto isolato."""
-    return remove(image, session=_session)
+def cutout_full(image: Image.Image) -> Image.Image:
+    """Rimuove lo sfondo dall'immagine intera, ritorna RGBA con soggetti isolati."""
+    return remove(image, session=_session).convert("RGBA")
 
 
-def split_left_right(img: Image.Image):
-    """Divide l'immagine originale in meta' sinistra (boccetta) e destra (unghia)."""
-    w, h = img.size
-    left = img.crop((0, 0, w // 2, h))
-    right = img.crop((w // 2, 0, w, h))
-    return left, right
+def find_components(rgba: Image.Image, alpha_threshold: int = 20):
+    """Trova le componenti connesse (soggetti) nel canale alpha e i loro bbox/centroidi."""
+    alpha = np.array(rgba.split()[-1])
+    mask = alpha > alpha_threshold
+    labeled, n = ndimage.label(mask)
+    if n == 0:
+        return []
+
+    components = []
+    areas = ndimage.sum(mask, labeled, index=range(1, n + 1))
+    max_area = areas.max()
+    for i in range(1, n + 1):
+        area = areas[i - 1]
+        if area < max_area * MIN_COMPONENT_AREA_RATIO:
+            continue
+        ys, xs = np.where(labeled == i)
+        components.append({
+            "bbox": (int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1),
+            "centroid_x": float(xs.mean()),
+            "area": float(area),
+        })
+    return components
 
 
-def bbox_of_subject(rgba: Image.Image):
-    """Restituisce il bounding box del soggetto (pixel non trasparenti)."""
-    alpha = rgba.split()[-1]
-    bbox = alpha.getbbox()
-    return bbox
+def split_into_two_groups(components):
+    """Divide le componenti in due gruppi (sinistra/destra) trovando il vuoto
+    orizzontale piu' ampio tra i centroidi ordinati."""
+    if len(components) <= 1:
+        return components, []
+
+    sorted_comps = sorted(components, key=lambda c: c["centroid_x"])
+    gaps = [
+        (sorted_comps[i + 1]["centroid_x"] - sorted_comps[i]["centroid_x"], i)
+        for i in range(len(sorted_comps) - 1)
+    ]
+    _, split_idx = max(gaps)
+    left_group = sorted_comps[: split_idx + 1]
+    right_group = sorted_comps[split_idx + 1:]
+    return left_group, right_group
 
 
-def paste_centered_in_zone(canvas: Image.Image, subject_rgba: Image.Image, zone):
+def union_bbox(components):
+    x0 = min(c["bbox"][0] for c in components)
+    y0 = min(c["bbox"][1] for c in components)
+    x1 = max(c["bbox"][2] for c in components)
+    y1 = max(c["bbox"][3] for c in components)
+    return x0, y0, x1, y1
+
+
+def paste_contain_fit(canvas: Image.Image, subject_rgba: Image.Image, bbox, zone):
     zx0, zy0, zx1, zy1 = zone
     zone_w = zx1 - zx0
     zone_h = zy1 - zy0
 
-    bbox = bbox_of_subject(subject_rgba)
-    if bbox is None:
-        return
     cropped = subject_rgba.crop(bbox)
+    max_w = int(zone_w * CONTAIN_RATIO)
+    max_h = int(zone_h * CONTAIN_RATIO)
 
-    target_h = int(zone_h * SUBJECT_HEIGHT_RATIO)
-    scale = target_h / cropped.height
-    target_w = int(cropped.width * scale)
+    scale = min(max_w / cropped.width, max_h / cropped.height)
+    target_w = max(1, int(cropped.width * scale))
+    target_h = max(1, int(cropped.height * scale))
     resized = cropped.resize((target_w, target_h), Image.LANCZOS)
 
     paste_x = zx0 + (zone_w - target_w) // 2
@@ -78,13 +123,20 @@ def process_one(entry: dict) -> Path:
     src_path = ROOT / entry["backup_local_path"]
     img = Image.open(src_path).convert("RGB")
 
-    left_half, right_half = split_left_right(img)
-    left_cut = cutout(left_half).convert("RGBA")
-    right_cut = cutout(right_half).convert("RGBA")
+    cut = cutout_full(img)
+    components = find_components(cut)
 
     canvas = Image.new("RGBA", (CANVAS_W, CANVAS_H), BG_COLOR)
-    paste_centered_in_zone(canvas, left_cut, LEFT_ZONE)
-    paste_centered_in_zone(canvas, right_cut, RIGHT_ZONE)
+
+    if not components:
+        raise ValueError("nessun soggetto rilevato dopo il cutout")
+
+    left_group, right_group = split_into_two_groups(components)
+
+    if left_group:
+        paste_contain_fit(canvas, cut, union_bbox(left_group), LEFT_ZONE)
+    if right_group:
+        paste_contain_fit(canvas, cut, union_bbox(right_group), RIGHT_ZONE)
 
     out_name = Path(entry["backup_local_path"]).stem + ".png"
     out_path = PROCESSED_DIR / out_name
