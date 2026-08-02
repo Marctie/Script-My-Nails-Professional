@@ -68,47 +68,61 @@ manuale, indipendente da quello automatico sopra.
 
 ## Pubblicazione automatica in tempo reale (live_server.py + Termux-Launcher)
 
-Invece del flusso manuale sopra, `app/live_server.py` e' un server che sta sempre acceso
-su Termux (tablet Android sempre connesso, gestito da Termux-Launcher come gli altri bot
-Telegram gia' in uso) e riceve in tempo reale le scelte della cliente dal sito pubblico,
-pubblicando subito su WooCommerce. La chiave segreta resta sempre sul tablet, mai nella
-pagina pubblica.
+Invece del flusso manuale sopra, `app/live_server.py` e' un bot che sta sempre acceso su
+Termux (tablet Android sempre connesso, gestito da Termux-Launcher come gli altri bot
+Telegram gia' in uso). NON e' un server esposto su internet: il sito pubblico manda foto
+e scelta della cliente **direttamente all'API di Telegram** (bot dedicato), e questo
+script le riceve facendo polling (`getUpdates`), esattamente come tutti gli altri bot del
+progetto — niente tunnel, niente porta aperta, niente IP pubblico da gestire. La chiave
+WooCommerce resta sempre sul tablet, mai nella pagina pubblica.
 
 Questo progetto vive come cartella sorella di `Termux-Launcher/` (dentro `Dev/Bot
 Telegram/`), esattamente come gli altri bot, e usa la stessa infrastruttura:
 - `requirements.txt` (root del progetto) e' gia' la versione leggera per Termux (solo
-  Flask/flask-cors/requests/WooCommerce/python-dotenv). Le librerie pesanti di elaborazione
-  immagini (rembg, onnxruntime, scipy, pillow...) sono in `requirements-processing.txt`,
-  usato SOLO sul PC per backup.py/process.py/build_static_site.py.
+  Flask/requests/WooCommerce/python-dotenv/Pillow — Flask serve solo per health/stats
+  locali, non e' piu' esposto pubblicamente). Le librerie pesanti di elaborazione
+  immagini (rembg, onnxruntime, scipy...) sono in `requirements-processing.txt`,
+  usato SOLO sul PC per backup.py/process.py.
 - Riga gia' aggiunta in `Termux-Launcher/bots.conf`:
   `nails_live|My Nails - Pubblicazione Foto|Script My Nails Professional|app/live_server.py|nails_live.log`
 
 Setup:
-1. Su Termux, imposta `REVIEW_API_TOKEN` nel `.env` del progetto (token gia' generato).
-2. Lancia (una volta, o dopo aver modificato requirements.txt):
+1. Crea un bot Telegram **dedicato** (diverso da ogni altro bot del progetto, altrimenti
+   due processi in polling sullo stesso token vanno in conflitto): parla con `@BotFather`,
+   `/newbot`, copia il token. Avvia una volta la chat col nuovo bot (Start) cosi' puo'
+   mandarti messaggi.
+2. Su Termux, nel `.env` del progetto imposta:
+   ```
+   REVIEW_API_TOKEN=...       (gia' presente, riusato come filtro anti-spam)
+   TELEGRAM_LIVE_BOT_TOKEN=... (il token del bot dedicato appena creato)
+   TELEGRAM_LIVE_CHAT_ID=...   (il tuo chat id Telegram, es. quello gia' usato per gli altri bot)
+   ```
+3. Lancia (una volta, o dopo aver modificato requirements.txt):
    `bash ~/bots/Termux-Launcher/install.sh` — crea il venv e installa le dipendenze leggere.
-3. Avvia/ferma/riavvia con la dashboard su `http://127.0.0.1:8765` (voce "My Nails -
+4. Avvia/ferma/riavvia con la dashboard su `http://127.0.0.1:8765` (voce "My Nails -
    Pubblicazione Foto"), oppure da terminale:
    `bash ~/bots/Termux-Launcher/bot_ctl.sh nails_live start|stop|restart`
-4. Esponi la porta 5001 con un tunnel pubblico (es. Cloudflare Tunnel, disponibile anche
-   su Termux) per ottenere un URL raggiungibile da internet.
 5. Apri `docs/config.js` e imposta:
    ```js
-   const LIVE_SERVER_URL = "https://tuo-tunnel.esempio.com";
-   const LIVE_SERVER_TOKEN = "lo-stesso-valore-di-REVIEW_API_TOKEN";
+   const TELEGRAM_BOT_TOKEN = "lo-stesso-valore-di-TELEGRAM_LIVE_BOT_TOKEN";
+   const TELEGRAM_CHAT_ID = "lo-stesso-valore-di-TELEGRAM_LIVE_CHAT_ID";
+   const REVIEW_TOKEN = "lo-stesso-valore-di-REVIEW_API_TOKEN";
    ```
    Questo file NON viene sovrascritto da `build_static_site.py` una volta creato, quindi
    resta configurato anche rigenerando il sito.
-6. Committa e pusha: la pagina pubblica ora invia automaticamente ogni scelta al server,
-   che pubblica subito su WooCommerce.
+6. Committa e pusha: la pagina pubblica ora invia automaticamente ogni scelta al bot via
+   Telegram, che pubblica subito su WooCommerce.
 
 Monitoraggio: la dashboard di Termux-Launcher (http://127.0.0.1:8765) mostra gia' stato
 attivo/fermo, uptime, CPU/RAM e ultime righe di log per "nails_live" come per ogni altro
-bot. In aggiunta, live_server.py offre:
-- `GET /api/health` -> stato + uptime
-- `GET /api/stats` -> contatori (richieste, pubblicazioni, rifiuti, errori) ed eventi recenti
+bot. In aggiunta, live_server.py offre (solo localmente su Termux, non su internet):
+- `GET http://127.0.0.1:5001/api/health` -> stato + uptime
+- `GET http://127.0.0.1:5001/api/stats` -> contatori (richieste, pubblicazioni, rifiuti, errori) ed eventi recenti
 - Log dettagliato in `logs/live_server.log` (oltre al log principale che Termux-Launcher
   tiene in `logs/nails_live.log`)
+- Notifiche dettagliate su Telegram (bot "Centro di Comando") per ogni azione sui singoli
+  prodotti: ricezione foto, backup della foto attuale prima della sostituzione, upload
+  riuscito/fallito, conferma "nessuna modifica" della cliente.
 
 ## Recupero in caso di errore
 

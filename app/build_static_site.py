@@ -123,11 +123,13 @@ INDEX_HTML = """<!doctype html>
 # config.js NON viene sovrascritto se esiste gia' (build_static_site() lo scrive solo
 # la prima volta), cosi' l'URL/token del server live impostati a mano sopravvivono
 # alle rigenerazioni successive del sito.
-DEFAULT_CONFIG_JS = """// Configurazione del server live (Termux/PC) che pubblica su WooCommerce.
-// Lascia LIVE_SERVER_URL vuoto per usare SOLO il salvataggio locale + export manuale.
-// Esempio: "https://qualcosa.trycloudflare.com"
-const LIVE_SERVER_URL = "";
-const LIVE_SERVER_TOKEN = "";
+DEFAULT_CONFIG_JS = """// Configurazione del bot Telegram dedicato (gira su Termux, in polling,
+// nessun tunnel/porta esposta) che riceve le scelte della cliente e pubblica
+// su WooCommerce. Lascia TELEGRAM_BOT_TOKEN vuoto per usare SOLO il
+// salvataggio locale + export manuale (nessuna pubblicazione automatica).
+const TELEGRAM_BOT_TOKEN = "";
+const TELEGRAM_CHAT_ID = "";
+const REVIEW_TOKEN = "";
 """
 
 STYLES_CSS = """
@@ -197,32 +199,54 @@ function saveReviewData(category, productId, data) {
   localStorage.setItem(reviewKey(category, productId), JSON.stringify(data));
 }
 
+function dataUrlToBlob(dataUrl) {
+  const [header, b64] = dataUrl.split(",", 2);
+  const mime = (header.match(/data:(.*?);base64/) || [])[1] || "image/jpeg";
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+// Manda la scelta della cliente direttamente all'API pubblica di Telegram
+// (bot dedicato in ascolto su Termux tramite polling, nessun server esposto
+// su internet). Il caption/testo segue il formato che live_server.py si
+// aspetta: MYNAILS|<token>|<categoria>|<product_id>|<stato>
 async function submitToLiveServer(category, productId, status, customImage) {
-  if (!LIVE_SERVER_URL) return; // nessun server configurato: resta solo salvataggio locale
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return; // non configurato: resta solo salvataggio locale
 
   const data = getReviewData(category, productId);
   data.publishState = "invio in corso...";
   saveReviewData(category, productId, data);
   renderGrid();
 
+  const caption = `MYNAILS|${REVIEW_TOKEN || ""}|${category}|${productId}|${status}`;
+  const apiBase = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+
   try {
-    const res = await fetch(`${LIVE_SERVER_URL}/api/submit`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Review-Token": LIVE_SERVER_TOKEN || "",
-      },
-      body: JSON.stringify({ category, product_id: productId, status, customImage }),
-    });
+    let res;
+    if (status === "custom" && customImage) {
+      const form = new FormData();
+      form.append("chat_id", TELEGRAM_CHAT_ID);
+      form.append("caption", caption);
+      form.append("document", dataUrlToBlob(customImage), `${productId}.jpg`);
+      res = await fetch(`${apiBase}/sendDocument`, { method: "POST", body: form });
+    } else {
+      res = await fetch(`${apiBase}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: caption }),
+      });
+    }
     const result = await res.json();
     const latest = getReviewData(category, productId);
     latest.publishState = result.ok
-      ? (result.published ? "pubblicato sul sito" : "registrato")
-      : `errore: ${result.error || "sconosciuto"}`;
+      ? "inviato al bot (verra' pubblicato a breve)"
+      : `errore invio: ${result.description || "sconosciuto"}`;
     saveReviewData(category, productId, latest);
   } catch (e) {
     const latest = getReviewData(category, productId);
-    latest.publishState = "server non raggiungibile (salvato solo qui)";
+    latest.publishState = "Telegram non raggiungibile (salvato solo qui)";
     saveReviewData(category, productId, latest);
   }
   renderGrid();
