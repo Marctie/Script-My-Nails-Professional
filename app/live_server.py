@@ -1,26 +1,30 @@
 """
-Server locale (gira sul tuo PC) che riceve in tempo reale le scelte della
+Server (pensato per girare su Termux, tablet sempre acceso, gestito da
+Termux-Launcher come gli altri bot) che riceve in tempo reale le scelte della
 cliente dal sito pubblico GitHub Pages e pubblica SUBITO su WooCommerce:
   - "approved"  -> pubblica la foto elaborata automaticamente
   - "custom"    -> salva la foto caricata da lei e la pubblica
   - "rejected"  -> registra solo il rifiuto (nessuna azione, va rielaborata da te)
 
-La chiave segreta WooCommerce non lascia mai questo PC: il sito pubblico
-manda solo "quale prodotto, quale scelta, eventuale foto", mai la chiave.
+La chiave segreta WooCommerce non lascia mai il dispositivo che fa girare
+questo server: il sito pubblico manda solo "quale prodotto, quale scelta,
+eventuale foto", mai la chiave.
 
 Protezione: le richieste devono includere l'header X-Review-Token uguale a
 REVIEW_API_TOKEN nel tuo .env, per evitare che chiunque trovi il link possa
 mandare richieste a vuoto. Non e' una sicurezza bancaria, ma un filtro di base.
 
-Avvio: python app/live_server.py
-Poi esponi la porta 5001 (Cloudflare Tunnel o Termux, vedi README) per farla
+Gestito da Termux-Launcher (voce "nails_live" in bots.conf): avvio/stop/restart
+tramite la dashboard su http://127.0.0.1:8765 o con
+  bash ~/bots/Termux-Launcher/bot_ctl.sh nails_live start|stop|restart
+Poi esponi la porta 5001 con un tunnel pubblico (vedi README) per farla
 raggiungere dal sito pubblico.
 
-Monitoraggio (per integrazione con dashboard esterna, es. quella dei bot su Termux):
+Monitoraggio (in aggiunta a quello gia' offerto da Termux-Launcher via psutil/tmux):
   - GET  /api/health -> {"ok": true, "uptime_seconds": ...}
   - GET  /api/stats  -> contatori richieste/pubblicazioni/errori ed eventi recenti
-  - file di log leggibile in logs/live_server.log (una riga per evento)
-  - PID scritto in logs/live_server.pid all'avvio, per script di stop/restart esterni
+  - file di log leggibile in logs/live_server.log (una riga per evento) - Termux-Launcher
+    invece tiene il log principale in Script My Nails Professional/logs/nails_live.log
 """
 import base64
 import json
