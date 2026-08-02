@@ -1,26 +1,30 @@
 """
-Server locale (gira sul tuo PC) che riceve in tempo reale le scelte della
+Server (pensato per girare su Termux, tablet sempre acceso, gestito da
+Termux-Launcher come gli altri bot) che riceve in tempo reale le scelte della
 cliente dal sito pubblico GitHub Pages e pubblica SUBITO su WooCommerce:
   - "approved"  -> pubblica la foto elaborata automaticamente
   - "custom"    -> salva la foto caricata da lei e la pubblica
   - "rejected"  -> registra solo il rifiuto (nessuna azione, va rielaborata da te)
 
-La chiave segreta WooCommerce non lascia mai questo PC: il sito pubblico
-manda solo "quale prodotto, quale scelta, eventuale foto", mai la chiave.
+La chiave segreta WooCommerce non lascia mai il dispositivo che fa girare
+questo server: il sito pubblico manda solo "quale prodotto, quale scelta,
+eventuale foto", mai la chiave.
 
 Protezione: le richieste devono includere l'header X-Review-Token uguale a
 REVIEW_API_TOKEN nel tuo .env, per evitare che chiunque trovi il link possa
 mandare richieste a vuoto. Non e' una sicurezza bancaria, ma un filtro di base.
 
-Avvio: python app/live_server.py
-Poi esponi la porta 5001 (Cloudflare Tunnel o Termux, vedi README) per farla
+Gestito da Termux-Launcher (voce "nails_live" in bots.conf): avvio/stop/restart
+tramite la dashboard su http://127.0.0.1:8765 o con
+  bash ~/bots/Termux-Launcher/bot_ctl.sh nails_live start|stop|restart
+Poi esponi la porta 5001 con un tunnel pubblico (vedi README) per farla
 raggiungere dal sito pubblico.
 
-Monitoraggio (per integrazione con dashboard esterna, es. quella dei bot su Termux):
+Monitoraggio (in aggiunta a quello gia' offerto da Termux-Launcher via psutil/tmux):
   - GET  /api/health -> {"ok": true, "uptime_seconds": ...}
   - GET  /api/stats  -> contatori richieste/pubblicazioni/errori ed eventi recenti
-  - file di log leggibile in logs/live_server.log (una riga per evento)
-  - PID scritto in logs/live_server.pid all'avvio, per script di stop/restart esterni
+  - file di log leggibile in logs/live_server.log (una riga per evento) - Termux-Launcher
+    invece tiene il log principale in Script My Nails Professional/logs/nails_live.log
 """
 import base64
 import json
@@ -34,7 +38,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-from upload import upload_to_media_library, set_product_image, CONTENT_TYPES  # noqa: E402
+from upload import upload_to_media_library, set_product_image, CONTENT_TYPES, wcapi  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
@@ -139,7 +143,32 @@ def save_custom_image(category: str, product_id: str, data_url: str) -> Path:
     return dest
 
 
-def publish_image(product_id: int, image_path: Path):
+def backup_live_image(category: str, product_id: int):
+    """Scarica e salva la foto ATTUALMENTE live su WooCommerce prima di sostituirla,
+    cosi' c'e' sempre un backup fresco del prodotto appena prima di ogni pubblicazione."""
+    try:
+        resp = wcapi.get(f"products/{product_id}")
+        resp.raise_for_status()
+        images = resp.json().get("images") or []
+        if not images:
+            return
+        url = images[0]["src"]
+        ext = Path(url.split("?")[0]).suffix or ".jpg"
+        backup_dir = processed_dir_for(category) / "pre_publish_backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        dest = backup_dir / f"{product_id}_{stamp}{ext}"
+        import requests as _requests
+        r = _requests.get(url, timeout=30)
+        r.raise_for_status()
+        dest.write_bytes(r.content)
+        logger.info(f"[{category}] backup foto live prodotto {product_id} -> {dest.name}")
+    except Exception as e:
+        logger.warning(f"[{category}] backup foto live fallito per {product_id}: {e}")
+
+
+def publish_image(category: str, product_id: int, image_path: Path):
+    backup_live_image(category, product_id)
     media_id = upload_to_media_library(image_path)
     set_product_image(product_id, media_id)
     return media_id
@@ -197,7 +226,7 @@ def submit():
     try:
         if status == "custom" and custom_image:
             image_path = save_custom_image(category, product_id, custom_image)
-            media_id = publish_image(entry["product_id"], image_path)
+            media_id = publish_image(category, entry["product_id"], image_path)
             log[product_id] = {"status": "pubblicato", "media_id": media_id, "source": "foto cliente"}
             save_json(log_path, log)
             STATS["published"] += 1

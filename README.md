@@ -66,36 +66,49 @@ anche usare `app/dashboard.py` (revisione locale a http://127.0.0.1:5000) e
 `app/upload.py` per caricare a mano le immagini elaborate approvate — flusso
 manuale, indipendente da quello automatico sopra.
 
-## Pubblicazione automatica in tempo reale (live_server.py)
+## Pubblicazione automatica in tempo reale (live_server.py + Termux-Launcher)
 
 Invece del flusso manuale sopra, `app/live_server.py` e' un server che sta sempre acceso
-(pensato per girare su Termux, tablet Android sempre connesso, come i bot Telegram gia' in
-uso) e riceve in tempo reale le scelte della cliente dal sito pubblico, pubblicando subito
-su WooCommerce. La chiave segreta resta sempre sul dispositivo che fa girare il server,
-mai nella pagina pubblica.
+su Termux (tablet Android sempre connesso, gestito da Termux-Launcher come gli altri bot
+Telegram gia' in uso) e riceve in tempo reale le scelte della cliente dal sito pubblico,
+pubblicando subito su WooCommerce. La chiave segreta resta sempre sul tablet, mai nella
+pagina pubblica.
+
+Questo progetto vive come cartella sorella di `Termux-Launcher/` (dentro `Dev/Bot
+Telegram/`), esattamente come gli altri bot, e usa la stessa infrastruttura:
+- `requirements.txt` (root del progetto) e' gia' la versione leggera per Termux (solo
+  Flask/flask-cors/requests/WooCommerce/python-dotenv). Le librerie pesanti di elaborazione
+  immagini (rembg, onnxruntime, scipy, pillow...) sono in `requirements-processing.txt`,
+  usato SOLO sul PC per backup.py/process.py/build_static_site.py.
+- Riga gia' aggiunta in `Termux-Launcher/bots.conf`:
+  `nails_live|My Nails - Pubblicazione Foto|Script My Nails Professional|app/live_server.py|nails_live.log`
 
 Setup:
-1. Sul dispositivo che fara' girare il server (Termux o PC), imposta `REVIEW_API_TOKEN`
-   nel `.env` (un token a caso, gia' generato in questo progetto).
-2. Avvia: `python app/live_server.py` (oppure `bash scripts/start.sh` su Termux).
-   Controllo: `bash scripts/status.sh`, `bash scripts/stop.sh`, `bash scripts/restart.sh`.
-3. Esponi la porta 5001 con un tunnel pubblico (es. Cloudflare Tunnel o servizio simile
-   disponibile su Termux) per ottenere un URL raggiungibile da internet.
-4. Apri `docs/config.js` e imposta:
+1. Su Termux, imposta `REVIEW_API_TOKEN` nel `.env` del progetto (token gia' generato).
+2. Lancia (una volta, o dopo aver modificato requirements.txt):
+   `bash ~/bots/Termux-Launcher/install.sh` — crea il venv e installa le dipendenze leggere.
+3. Avvia/ferma/riavvia con la dashboard su `http://127.0.0.1:8765` (voce "My Nails -
+   Pubblicazione Foto"), oppure da terminale:
+   `bash ~/bots/Termux-Launcher/bot_ctl.sh nails_live start|stop|restart`
+4. Esponi la porta 5001 con un tunnel pubblico (es. Cloudflare Tunnel, disponibile anche
+   su Termux) per ottenere un URL raggiungibile da internet.
+5. Apri `docs/config.js` e imposta:
    ```js
    const LIVE_SERVER_URL = "https://tuo-tunnel.esempio.com";
    const LIVE_SERVER_TOKEN = "lo-stesso-valore-di-REVIEW_API_TOKEN";
    ```
    Questo file NON viene sovrascritto da `build_static_site.py` una volta creato, quindi
    resta configurato anche rigenerando il sito.
-5. Committa e pusha: la pagina pubblica ora invia automaticamente ogni scelta al server,
+6. Committa e pusha: la pagina pubblica ora invia automaticamente ogni scelta al server,
    che pubblica subito su WooCommerce.
 
-Monitoraggio (per integrare con una dashboard esterna):
+Monitoraggio: la dashboard di Termux-Launcher (http://127.0.0.1:8765) mostra gia' stato
+attivo/fermo, uptime, CPU/RAM e ultime righe di log per "nails_live" come per ogni altro
+bot. In aggiunta, live_server.py offre:
 - `GET /api/health` -> stato + uptime
 - `GET /api/stats` -> contatori (richieste, pubblicazioni, rifiuti, errori) ed eventi recenti
-- Log leggibile in `logs/live_server.log`
-- PID in `logs/live_server.pid` (usato dagli script start/stop/restart in `scripts/`)
+- Log dettagliato in `logs/live_server.log` (oltre al log principale che Termux-Launcher
+  tiene in `logs/nails_live.log`)
 
 ## Recupero in caso di errore
 
