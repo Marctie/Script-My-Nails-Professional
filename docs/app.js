@@ -21,32 +21,54 @@ function saveReviewData(category, productId, data) {
   localStorage.setItem(reviewKey(category, productId), JSON.stringify(data));
 }
 
+function dataUrlToBlob(dataUrl) {
+  const [header, b64] = dataUrl.split(",", 2);
+  const mime = (header.match(/data:(.*?);base64/) || [])[1] || "image/jpeg";
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+// Manda la scelta della cliente direttamente all'API pubblica di Telegram
+// (bot dedicato in ascolto su Termux tramite polling, nessun server esposto
+// su internet). Il caption/testo segue il formato che live_server.py si
+// aspetta: MYNAILS|<token>|<categoria>|<product_id>|<stato>
 async function submitToLiveServer(category, productId, status, customImage) {
-  if (!LIVE_SERVER_URL) return; // nessun server configurato: resta solo salvataggio locale
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return; // non configurato: resta solo salvataggio locale
 
   const data = getReviewData(category, productId);
   data.publishState = "invio in corso...";
   saveReviewData(category, productId, data);
   renderGrid();
 
+  const caption = `MYNAILS|${REVIEW_TOKEN || ""}|${category}|${productId}|${status}`;
+  const apiBase = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+
   try {
-    const res = await fetch(`${LIVE_SERVER_URL}/api/submit`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Review-Token": LIVE_SERVER_TOKEN || "",
-      },
-      body: JSON.stringify({ category, product_id: productId, status, customImage }),
-    });
+    let res;
+    if (status === "custom" && customImage) {
+      const form = new FormData();
+      form.append("chat_id", TELEGRAM_CHAT_ID);
+      form.append("caption", caption);
+      form.append("document", dataUrlToBlob(customImage), `${productId}.jpg`);
+      res = await fetch(`${apiBase}/sendDocument`, { method: "POST", body: form });
+    } else {
+      res = await fetch(`${apiBase}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: caption }),
+      });
+    }
     const result = await res.json();
     const latest = getReviewData(category, productId);
     latest.publishState = result.ok
-      ? (result.published ? "pubblicato sul sito" : "registrato")
-      : `errore: ${result.error || "sconosciuto"}`;
+      ? "inviato al bot (verra' pubblicato a breve)"
+      : `errore invio: ${result.description || "sconosciuto"}`;
     saveReviewData(category, productId, latest);
   } catch (e) {
     const latest = getReviewData(category, productId);
-    latest.publishState = "server non raggiungibile (salvato solo qui)";
+    latest.publishState = "Telegram non raggiungibile (salvato solo qui)";
     saveReviewData(category, productId, latest);
   }
   renderGrid();
@@ -115,14 +137,12 @@ async function selectCategory(cat) {
 function renderGrid() {
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
-  let approved = 0, rejected = 0, pending = 0;
+  let noChange = 0, pending = 0, custom = 0;
 
-  let custom = 0;
   currentItems.forEach(item => {
     const data = getReviewData(currentCategory, item.product_id);
     const status = data.status || "pending";
-    if (status === "approved") approved++;
-    else if (status === "rejected") rejected++;
+    if (status === "no_change") noChange++;
     else if (status === "custom") custom++;
     else pending++;
 
@@ -142,12 +162,8 @@ function renderGrid() {
       ${publishState}
       <div class="images">
         <figure>
-          <img src="${item.original_image}" alt="originale">
+          <img src="${item.original_image}" alt="attuale">
           <figcaption>Attuale</figcaption>
-        </figure>
-        <figure>
-          <img src="${item.processed_image}" alt="nuova">
-          <figcaption>Nuova proposta</figcaption>
         </figure>
         ${customPreview}
       </div>
@@ -157,10 +173,8 @@ function renderGrid() {
         <input type="file" id="${fileInputId}" accept="image/*" style="display:none">
       </div>
       <div class="actions">
-        <button class="act approve ${status === 'approved' ? 'active' : ''}"
-          onclick="setReview('${currentCategory}', ${item.product_id}, 'approved')">Approva</button>
-        <button class="act reject ${status === 'rejected' ? 'active' : ''}"
-          onclick="setReview('${currentCategory}', ${item.product_id}, 'rejected')">Rifiuta</button>
+        <button class="act no-change ${status === 'no_change' ? 'active' : ''}"
+          onclick="setReview('${currentCategory}', ${item.product_id}, 'no_change')">Va bene cosi', nessuna modifica</button>
       </div>
     `;
     grid.appendChild(card);
@@ -170,7 +184,7 @@ function renderGrid() {
   });
 
   document.getElementById("stats").innerText =
-    `Categoria: ${currentCategory} | Totale: ${currentItems.length} | Approvate: ${approved} | Rifiutate: ${rejected} | Foto proprie: ${custom} | Da rivedere: ${pending}`;
+    `Categoria: ${currentCategory} | Totale: ${currentItems.length} | Foto proprie caricate: ${custom} | Nessuna modifica: ${noChange} | Da rivedere: ${pending}`;
 }
 
 function exportResults() {
