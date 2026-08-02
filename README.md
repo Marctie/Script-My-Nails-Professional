@@ -1,11 +1,18 @@
 # Script My Nails Professional - Automazione immagini prodotto
 
-Automatizza l'aggiornamento delle foto prodotto (categoria Color Gel) su WooCommerce:
-prende la foto attuale (boccetta + anteprima unghia), isola i due soggetti, li ricompone
-in un layout uniforme su sfondo bianco, e — solo dopo tua approvazione manuale in una
-dashboard di revisione — aggiorna il prodotto sul sito.
+Flusso principale (nessuna elaborazione AI, gira interamente su Termux):
+mostra alla cliente la foto attuale di ogni prodotto su un sito di revisione,
+lei puo' caricare una sua foto sostitutiva che viene pubblicata SUBITO su
+WooCommerce, oppure segnare che per ora va bene cosi'. Nessuna elaborazione
+tocca il sito finche' lei non carica esplicitamente una foto.
 
-Nessuna elaborazione tocca il sito finche' non approvi esplicitamente ogni immagine.
+Esiste anche uno script separato, `app/process.py` (isola boccetta +
+anteprima unghia da una foto e le ricompone in un layout uniforme), che usa
+librerie pesanti (rembg/numpy/scipy) e NON fa piu' parte del flusso di
+revisione di default: il sito statico ora mostra solo la foto attuale, non
+piu' un confronto con una proposta elaborata automaticamente. Va lanciato a
+mano sul PC solo se un giorno vuoi generare tu una proposta alternativa per
+un prodotto, al di fuori del flusso automatico.
 
 ## Setup (una tantum)
 
@@ -17,7 +24,7 @@ pip install -r requirements.txt
 
 Le credenziali WooCommerce sono gia' in `.env` (non versionato su git).
 
-## Flusso di lavoro (per categoria)
+## Flusso di lavoro consigliato (automatico, gira su Termux)
 
 Tutti gli script accettano una o piu' categorie come argomento (slug WooCommerce,
 es. `color-gel`, `acrygel`, `semi-permanente`). Senza argomenti usano `WC_CATEGORY_SLUG`
@@ -28,46 +35,36 @@ dal `.env`.
    python app/backup.py color-gel acrygel semi-permanente
    ```
    Risultato per ogni categoria: `backup/<categoria>/images/` e `backup/<categoria>/manifest/manifest.json`.
+   Va rifatto ogni volta che aggiungi prodotti nuovi o cambi la foto attuale a mano.
 
-2. **Elaborazione** (cutout + ricomposizione uniforme, salva solo in locale):
-   ```
-   python app/process.py color-gel acrygel semi-permanente
-   ```
-   Risultato per ogni categoria: `processed/<categoria>/<id>.png` (immagine finale) e
-   `processed/<categoria>/preview/<id>.png` (originale affiancato al risultato).
-
-3a. **Revisione locale (per te)**: dashboard web con tutte le categorie a tab:
-   ```
-   python app/dashboard.py
-   ```
-   Apri http://127.0.0.1:5000 nel browser.
-
-3b. **Revisione dalla cliente (sito statico su GitHub Pages)**:
+2. **Genera il sito di revisione per la cliente**:
    ```
    python app/build_static_site.py
    ```
    Genera/aggiorna la cartella `docs/` (pubblicata automaticamente da GitHub Pages
    se abilitato nelle impostazioni del repo, branch `master`/`main`, cartella `/docs`).
-   La cliente apre il link, approva/rifiuta ogni prodotto (per categoria). Per ogni
-   prodotto puo' anche scaricare la foto attuale o caricare una SUA foto alternativa
-   (se non le piace nessuna delle due proposte). Alla fine scarica un file
-   `revisione_YYYY-MM-DD.json` e te lo invia. Guida per lei: `docs/guida.html`
+   Il sito mostra solo la foto attuale di ogni prodotto (nessuna proposta elaborata):
+   la cliente puo' scaricarla, caricarne una sua (pubblicata SUBITO da `live_server.py`,
+   vedi sezione sotto) o segnare che va bene cosi'. Guida per lei: `docs/guida.html`
    (o `GUIDA_CLIENTE.md`).
 
-   Quando ricevi il file, importalo per aggiornare lo stato di revisione:
-   ```
-   python app/import_reviews.py percorso/al/file/revisione_2026-08-01.json
-   ```
-   Questo aggiorna `processed/<categoria>/review_state.json` e salva eventuali foto
-   personalizzate della cliente in `processed/<categoria>/client_overrides/`.
-   Poi rielabora solo i prodotti rifiutati e rigenera il sito statico per la
-   nuova revisione.
+3. **Avvia `live_server.py`** (vedi sezione "Pubblicazione automatica in tempo reale"
+   sotto) — riceve le scelte della cliente e pubblica in automatico, senza bisogno
+   che tu intervenga.
 
-4. **Upload** (carica su WooCommerce SOLO le immagini approvate, per categoria):
-   ```
-   python app/upload.py color-gel --dry-run   # verifica cosa farebbe, senza caricare
-   python app/upload.py color-gel acrygel semi-permanente   # carica davvero
-   ```
+## Modulo opzionale: elaborazione con cutout automatico (rembg)
+
+Se in futuro vuoi generare TU una foto alternativa elaborata (isola boccetta +
+anteprima unghia da una foto e le ricompone in un layout uniforme), esiste
+`app/process.py` — usa pero' librerie pesanti (rembg/numpy/scipy) e va lanciato
+a mano sul PC, non fa parte del flusso automatico su Termux:
+```
+python app/process.py color-gel acrygel semi-permanente
+```
+Risultato per ogni categoria: `processed/<categoria>/<id>.png`. Con questo puoi
+anche usare `app/dashboard.py` (revisione locale a http://127.0.0.1:5000) e
+`app/upload.py` per caricare a mano le immagini elaborate approvate — flusso
+manuale, indipendente da quello automatico sopra.
 
 ## Pubblicazione automatica in tempo reale (live_server.py)
 

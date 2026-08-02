@@ -1,16 +1,17 @@
 """
 Genera il sito statico di revisione per GitHub Pages in docs/.
-Legge processed/<categoria>/process_manifest.json e copia le immagini
-(originale + risultato) ridimensionate in docs/assets/<categoria>/.
+Legge backup/<categoria>/manifest/manifest.json (creato da backup.py) e copia
+la foto attuale di ogni prodotto, ridimensionata, in docs/assets/<categoria>/.
 
-La cliente approva/rifiuta ogni prodotto: la scelta viene salvata SOLO nel suo
-browser (localStorage), perche' GitHub Pages e' hosting statico e non ha un
-server dietro. A fine revisione clicca "Scarica risultati" e invia il file
-JSON scaricato a Marco, che lo importa con app/import_reviews.py per sapere
-quali prodotti rielaborare.
+Nessuna elaborazione AI: il sito mostra solo la foto attuale di ogni
+prodotto. La cliente puo' caricare una sua foto sostitutiva, che viene
+pubblicata subito da live_server.py, oppure segnare che per ora va bene
+cosi'. La scelta viene salvata SOLO nel suo browser (localStorage), perche'
+GitHub Pages e' hosting statico e non ha un server dietro. A fine revisione
+clicca "Scarica risultati" e invia il file JSON scaricato a Marco.
 
 Uso:
-  python app/build_static_site.py                     # tutte le categorie in processed/
+  python app/build_static_site.py                     # tutte le categorie in backup/
   python app/build_static_site.py color-gel acrygel    # solo alcune categorie
 """
 import json
@@ -20,7 +21,7 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-PROCESSED_ROOT = ROOT / "processed"
+BACKUP_ROOT = ROOT / "backup"
 DOCS_ROOT = ROOT / "docs"
 ASSETS_ROOT = DOCS_ROOT / "assets"
 DATA_ROOT = DOCS_ROOT / "data"
@@ -38,36 +39,30 @@ def resize_for_web(src_path: Path, dest_path: Path, max_width: int = MAX_WEB_WID
 
 
 def build_category(category_slug: str):
-    manifest_path = PROCESSED_ROOT / category_slug / "process_manifest.json"
+    manifest_path = BACKUP_ROOT / category_slug / "manifest" / "manifest.json"
     if not manifest_path.exists():
-        print(f"[{category_slug}] Nessun manifest elaborato trovato, salto.")
+        print(f"[{category_slug}] Nessun backup trovato, salto (lancia prima app/backup.py).")
         return None
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     items = []
 
     orig_dir = ASSETS_ROOT / category_slug / "original"
-    proc_dir = ASSETS_ROOT / category_slug / "processed"
 
     for entry in manifest:
-        if entry.get("process_status") != "ok":
+        if entry.get("status") != "ok":
             continue
         pid = entry["product_id"]
 
         src_original = ROOT / entry["backup_local_path"]
-        src_processed = ROOT / entry["processed_path"]
-
         original_web_name = f"{pid}.jpg"
-        processed_web_name = f"{pid}.jpg"
 
         resize_for_web(src_original, orig_dir / original_web_name)
-        resize_for_web(src_processed, proc_dir / processed_web_name)
 
         items.append({
             "product_id": pid,
             "name": entry["name"],
             "original_image": f"assets/{category_slug}/original/{original_web_name}",
-            "processed_image": f"assets/{category_slug}/processed/{processed_web_name}",
         })
 
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
@@ -164,13 +159,10 @@ h1 { font-size: 20px; margin: 0; }
 .name { font-weight: bold; margin: 10px 0 4px; font-size: 14px; }
 .actions { margin-top: 8px; display: flex; gap: 8px; }
 button.act { flex: 1; padding: 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
-.approve { background: #2e7d32; color: white; }
-.approve.active { outline: 3px solid #a5d6a7; }
-.reject { background: #c62828; color: white; }
-.reject.active { outline: 3px solid #ef9a9a; }
+.no-change { background: #2e7d32; color: white; }
+.no-change.active { outline: 3px solid #a5d6a7; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 6px; }
-.badge.approved { background: #c8e6c9; color: #256029; }
-.badge.rejected { background: #ffcdd2; color: #b71c1c; }
+.badge.rejected { background: #c8e6c9; color: #256029; }
 .badge.pending { background: #eeeeee; color: #555; }
 .badge.custom { background: #bbdefb; color: #0d47a1; }
 
@@ -299,14 +291,12 @@ async function selectCategory(cat) {
 function renderGrid() {
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
-  let approved = 0, rejected = 0, pending = 0;
+  let noChange = 0, pending = 0, custom = 0;
 
-  let custom = 0;
   currentItems.forEach(item => {
     const data = getReviewData(currentCategory, item.product_id);
     const status = data.status || "pending";
-    if (status === "approved") approved++;
-    else if (status === "rejected") rejected++;
+    if (status === "no_change") noChange++;
     else if (status === "custom") custom++;
     else pending++;
 
@@ -326,12 +316,8 @@ function renderGrid() {
       ${publishState}
       <div class="images">
         <figure>
-          <img src="${item.original_image}" alt="originale">
+          <img src="${item.original_image}" alt="attuale">
           <figcaption>Attuale</figcaption>
-        </figure>
-        <figure>
-          <img src="${item.processed_image}" alt="nuova">
-          <figcaption>Nuova proposta</figcaption>
         </figure>
         ${customPreview}
       </div>
@@ -341,10 +327,8 @@ function renderGrid() {
         <input type="file" id="${fileInputId}" accept="image/*" style="display:none">
       </div>
       <div class="actions">
-        <button class="act approve ${status === 'approved' ? 'active' : ''}"
-          onclick="setReview('${currentCategory}', ${item.product_id}, 'approved')">Approva</button>
-        <button class="act reject ${status === 'rejected' ? 'active' : ''}"
-          onclick="setReview('${currentCategory}', ${item.product_id}, 'rejected')">Rifiuta</button>
+        <button class="act no-change ${status === 'no_change' ? 'active' : ''}"
+          onclick="setReview('${currentCategory}', ${item.product_id}, 'no_change')">Va bene cosi', nessuna modifica</button>
       </div>
     `;
     grid.appendChild(card);
@@ -354,7 +338,7 @@ function renderGrid() {
   });
 
   document.getElementById("stats").innerText =
-    `Categoria: ${currentCategory} | Totale: ${currentItems.length} | Approvate: ${approved} | Rifiutate: ${rejected} | Foto proprie: ${custom} | Da rivedere: ${pending}`;
+    `Categoria: ${currentCategory} | Totale: ${currentItems.length} | Foto proprie caricate: ${custom} | Nessuna modifica: ${noChange} | Da rivedere: ${pending}`;
 }
 
 function exportResults() {
@@ -431,31 +415,25 @@ GUIDA_HTML = """<!doctype html>
 
   <div class="step">
     <h2>1. Guarda ogni prodotto</h2>
-    <p>Per ogni prodotto vedi due foto affiancate: a sinistra quella <b>attuale</b> (di adesso),
-    a destra quella <b>nuova</b> proposta.</p>
+    <p>Per ogni prodotto vedi la foto <b>attuale</b> (quella di adesso sul sito).</p>
   </div>
 
   <div class="step">
-    <h2>2. Scegli</h2>
-    <p>Sotto ogni foto trovi due pulsanti:</p>
+    <h2>2. Scegli cosa fare</h2>
+    <p>Sotto la foto trovi due possibilita':</p>
     <p>
-      <span class="btn-example approve-ex">Approva</span> la nuova foto va bene<br><br>
-      <span class="btn-example reject-ex">Rifiuta</span> la nuova foto NON va bene, va rifatta
+      <span class="btn-example approve-ex">Va bene cosi', nessuna modifica</span> se la foto attuale ti piace<br><br>
+      <b>"Carica una tua foto"</b> se vuoi sostituirla con una foto tua: appena la carichi viene
+      pubblicata subito sul sito, senza bisogno di fare altro.
     </p>
     <p>Vai con calma, non c'e' fretta. Puoi anche chiudere la pagina e tornare piu' tardi:
     le tue scelte restano salvate (se usi sempre lo stesso computer e browser).</p>
   </div>
 
   <div class="step">
-    <h2>3. Non ti piace nessuna delle due foto?</h2>
-    <p>Per ogni prodotto trovi anche due link piu' piccoli:</p>
-    <p>
-      <b>"Scarica foto attuale"</b> ti salva sul computer/telefono la foto di adesso,
-      cosi' la puoi guardare con calma o mandarla a chi vuoi.<br><br>
-      <b>"Carica una tua foto"</b> ti permette di scegliere TU una foto dal tuo computer/telefono
-      per quel prodotto (ad esempio se ne hai una che ti piace di piu'). Basta cliccare e scegliere
-      il file: comparira' subito come anteprima nella scheda del prodotto.
-    </p>
+    <h2>3. Vuoi solo guardarla con calma?</h2>
+    <p>Il link <b>"Scarica foto attuale"</b> ti salva sul computer/telefono la foto di adesso,
+    cosi' la puoi guardare con calma o mandarla a chi vuoi, prima di decidere se sostituirla.</p>
   </div>
 
   <div class="step">
@@ -465,8 +443,8 @@ GUIDA_HTML = """<!doctype html>
   </div>
 
   <h2>Domande frequenti</h2>
-  <p><b>Ho sbagliato a cliccare, posso cambiare idea?</b><br>
-  Si', clicca di nuovo sull'altro pulsante per lo stesso prodotto: la scelta si aggiorna subito.</p>
+  <p><b>Ho sbagliato a caricare una foto, posso cambiare idea?</b><br>
+  Si', carica di nuovo una foto per lo stesso prodotto: sostituisce quella appena pubblicata.</p>
 
   <p><b>Non sono sicura su un prodotto, cosa faccio?</b><br>
   Lascialo senza cliccare nulla e chiedi a Marco prima di decidere.</p>
@@ -481,8 +459,8 @@ GUIDA_HTML = """<!doctype html>
 
 def main():
     categories = sys.argv[1:] or [
-        p.name for p in PROCESSED_ROOT.iterdir()
-        if p.is_dir() and (p / "process_manifest.json").exists()
+        p.name for p in BACKUP_ROOT.iterdir()
+        if p.is_dir() and (p / "manifest" / "manifest.json").exists()
     ]
     built = []
     for slug in categories:

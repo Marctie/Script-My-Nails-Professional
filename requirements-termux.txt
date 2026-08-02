@@ -1,0 +1,17 @@
+# Requirements ridotti per il solo live_server.py (pubblicazione in tempo
+# reale su WooCommerce), usati su Termux al posto di requirements.txt.
+#
+# Il requirements.txt completo include l'intera pipeline di elaborazione
+# immagini (rembg, numpy, scipy, numba/llvmlite, onnxruntime, scikit-image):
+# pesante, in parte richiede compilazione nativa, e non serve al server
+# sempre acceso. Pillow invece serve (solo per ridimensionare le immagini
+# in build_static_site.py) ma NON va installata da qui su Termux: non ha
+# wheel precompilate li' e fallisce la compilazione da sorgente (mancano
+# gli header di libjpeg) — install.sh la filtra automaticamente e usa al
+# suo posto il pacchetto nativo Termux "python-pillow".
+Flask==3.1.3
+flask-cors==6.0.5
+python-dotenv==1.2.2
+requests==2.34.2
+WooCommerce==3.0.0
+Pillow==12.3.0

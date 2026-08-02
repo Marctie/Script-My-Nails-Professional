@@ -29,6 +29,7 @@ import os
 import time
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -56,6 +57,41 @@ START_TIME = time.time()
 STATS = {"requests": 0, "published": 0, "rejected": 0, "errors": 0, "recent_events": []}
 MAX_RECENT_EVENTS = 50
 
+# Notifiche di stato/attivita' tramite il bot Telegram "Centro di Comando"
+# gia' in uso per gli altri bot su Termux: si riusa solo il suo token +
+# ADMIN_CHAT_IDS (chiamata diretta all'API Telegram), senza bisogno che
+# quel bot sia acceso ne' di duplicare credenziali in questo progetto.
+# Presuppone che questa cartella sia una sorella di "Termux-Launcher" dentro
+# ~/bots/ (stessa struttura usata per tutti gli altri bot).
+COMMAND_CENTER_ENV = ROOT.parent / "Termux-Launcher" / "command_center" / ".env"
+
+
+def notify_command_center(text: str) -> None:
+    try:
+        if not COMMAND_CENTER_ENV.exists():
+            return
+        env = {}
+        for line in COMMAND_CENTER_ENV.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            env[key.strip()] = value.strip()
+
+        token = env.get("TELEGRAM_BOT_TOKEN")
+        chat_ids = env.get("ADMIN_CHAT_IDS", "")
+        if not token:
+            return
+
+        for chat_id in filter(None, (c.strip() for c in chat_ids.split(","))):
+            requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data={"chat_id": chat_id, "text": text},
+                timeout=5,
+            )
+    except Exception:
+        logger.exception("Impossibile inviare notifica al Centro di Comando")
+
 
 def record_event(event: dict):
     event["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -71,6 +107,10 @@ def processed_dir_for(category: str) -> Path:
     return ROOT / "processed" / category
 
 
+def backup_manifest_path_for(category: str) -> Path:
+    return ROOT / "backup" / category / "manifest" / "manifest.json"
+
+
 def load_json(path: Path, default):
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
 
@@ -81,7 +121,7 @@ def save_json(path: Path, data):
 
 
 def find_manifest_entry(category: str, product_id: str):
-    manifest = load_json(processed_dir_for(category) / "process_manifest.json", [])
+    manifest = load_json(backup_manifest_path_for(category), [])
     return next((e for e in manifest if str(e["product_id"]) == str(product_id)), None)
 
 
@@ -136,7 +176,7 @@ def submit():
     status = data.get("status")
     custom_image = data.get("customImage")
 
-    if not category or not product_id or status not in ("approved", "rejected", "custom"):
+    if not category or not product_id or status not in ("no_change", "custom"):
         STATS["errors"] += 1
         return jsonify({"ok": False, "error": "dati mancanti o non validi"}), 400
 
@@ -155,17 +195,7 @@ def submit():
     log = load_json(log_path, {})
 
     try:
-        if status == "approved" and entry.get("process_status") == "ok":
-            image_path = ROOT / entry["processed_path"]
-            media_id = publish_image(entry["product_id"], image_path)
-            log[product_id] = {"status": "pubblicato", "media_id": media_id, "source": "elaborazione automatica"}
-            save_json(log_path, log)
-            STATS["published"] += 1
-            record_event({"category": category, "product_id": product_id, "action": "pubblicato (auto)"})
-            logger.info(f"[{category}] {product_id} pubblicato (elaborazione automatica), media_id={media_id}")
-            return jsonify({"ok": True, "published": True, "media_id": media_id})
-
-        elif status == "custom" and custom_image:
+        if status == "custom" and custom_image:
             image_path = save_custom_image(category, product_id, custom_image)
             media_id = publish_image(entry["product_id"], image_path)
             log[product_id] = {"status": "pubblicato", "media_id": media_id, "source": "foto cliente"}
@@ -173,10 +203,11 @@ def submit():
             STATS["published"] += 1
             record_event({"category": category, "product_id": product_id, "action": "pubblicato (foto cliente)"})
             logger.info(f"[{category}] {product_id} pubblicato (foto cliente), media_id={media_id}")
+            notify_command_center(f"🖼️ My Nails: prodotto {product_id} ({category}) pubblicato su WooCommerce (foto cliente).")
             return jsonify({"ok": True, "published": True, "media_id": media_id})
 
         else:
-            # rejected, oppure approved senza elaborazione riuscita: solo registrato
+            # no_change: la cliente ha detto che la foto attuale va bene, solo registrato
             log[product_id] = {"status": "registrato, nessuna pubblicazione", "review": status}
             save_json(log_path, log)
             STATS["rejected"] += 1
@@ -190,6 +221,7 @@ def submit():
         STATS["errors"] += 1
         record_event({"category": category, "product_id": product_id, "action": f"errore: {e}"})
         logger.exception(f"[{category}] {product_id} errore durante la pubblicazione")
+        notify_command_center(f"⚠️ My Nails: errore pubblicando il prodotto {product_id} ({category}): {e}")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
@@ -198,6 +230,7 @@ if __name__ == "__main__":
     if not REVIEW_API_TOKEN:
         logger.warning("REVIEW_API_TOKEN non impostato in .env, l'endpoint sara' aperto a chiunque conosca l'URL.")
     logger.info(f"Avvio live_server su porta 5001 (PID {os.getpid()})")
+    notify_command_center("✅ My Nails: server di pubblicazione avviato e in ascolto.")
     try:
         app.run(host="0.0.0.0", port=5001, debug=False)
     finally:
