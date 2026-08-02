@@ -37,7 +37,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-from upload import upload_to_media_library, set_product_image, CONTENT_TYPES  # noqa: E402
+from upload import upload_to_media_library, set_product_image, CONTENT_TYPES, wcapi  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT / ".env")
@@ -103,7 +103,32 @@ def save_custom_image(category: str, product_id: str, data_url: str) -> Path:
     return dest
 
 
-def publish_image(product_id: int, image_path: Path):
+def backup_live_image(category: str, product_id: int):
+    """Scarica e salva la foto ATTUALMENTE live su WooCommerce prima di sostituirla,
+    cosi' c'e' sempre un backup fresco del prodotto appena prima di ogni pubblicazione."""
+    try:
+        resp = wcapi.get(f"products/{product_id}")
+        resp.raise_for_status()
+        images = resp.json().get("images") or []
+        if not images:
+            return
+        url = images[0]["src"]
+        ext = Path(url.split("?")[0]).suffix or ".jpg"
+        backup_dir = processed_dir_for(category) / "pre_publish_backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        dest = backup_dir / f"{product_id}_{stamp}{ext}"
+        import requests as _requests
+        r = _requests.get(url, timeout=30)
+        r.raise_for_status()
+        dest.write_bytes(r.content)
+        logger.info(f"[{category}] backup foto live prodotto {product_id} -> {dest.name}")
+    except Exception as e:
+        logger.warning(f"[{category}] backup foto live fallito per {product_id}: {e}")
+
+
+def publish_image(category: str, product_id: int, image_path: Path):
+    backup_live_image(category, product_id)
     media_id = upload_to_media_library(image_path)
     set_product_image(product_id, media_id)
     return media_id
@@ -161,7 +186,7 @@ def submit():
     try:
         if status == "approved" and entry.get("process_status") == "ok":
             image_path = ROOT / entry["processed_path"]
-            media_id = publish_image(entry["product_id"], image_path)
+            media_id = publish_image(category, entry["product_id"], image_path)
             log[product_id] = {"status": "pubblicato", "media_id": media_id, "source": "elaborazione automatica"}
             save_json(log_path, log)
             STATS["published"] += 1
@@ -171,7 +196,7 @@ def submit():
 
         elif status == "custom" and custom_image:
             image_path = save_custom_image(category, product_id, custom_image)
-            media_id = publish_image(entry["product_id"], image_path)
+            media_id = publish_image(category, entry["product_id"], image_path)
             log[product_id] = {"status": "pubblicato", "media_id": media_id, "source": "foto cliente"}
             save_json(log_path, log)
             STATS["published"] += 1
