@@ -88,11 +88,19 @@ function setCustomImage(category, productId, file) {
     data.status = "custom";
     data.customImage = reader.result; // data URL base64
     data.customImageName = file.name;
+    data.publishState = null; // nuova foto: serve una nuova conferma prima di pubblicarla
     saveReviewData(category, productId, data);
     renderGrid();
-    submitToLiveServer(category, productId, "custom", data.customImage);
   };
   reader.readAsDataURL(file);
+}
+
+// Invio effettivo alla pubblicazione live: parte SOLO quando la cliente
+// clicca il pulsante di conferma, mai automaticamente al caricamento.
+function confirmPublish(category, productId) {
+  const data = getReviewData(category, productId);
+  if (!data.customImage) return;
+  submitToLiveServer(category, productId, "custom", data.customImage);
 }
 
 async function detectCategories() {
@@ -154,6 +162,14 @@ function renderGrid() {
       ? `<div class="publish-state">${data.publishState}</div>`
       : "";
 
+    // Il pulsante di conferma compare solo se c'e' una foto caricata non
+    // ancora inviata (o dopo un errore di invio, per poter riprovare):
+    // niente pubblicazione automatica al solo caricamento del file.
+    const notYetSent = !data.publishState || data.publishState.startsWith("errore");
+    const confirmButton = status === "custom" && data.customImage && notYetSent
+      ? `<button class="act confirm-publish" onclick="confirmPublish('${currentCategory}', ${item.product_id})">Conferma e pubblica questa foto</button>`
+      : "";
+
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
@@ -174,6 +190,7 @@ function renderGrid() {
       <div class="actions">
         <button class="act no-change ${status === 'no_change' ? 'active' : ''}"
           onclick="setReview('${currentCategory}', ${item.product_id}, 'no_change')">Va bene cosi', nessuna modifica</button>
+        ${confirmButton}
       </div>
     `;
     grid.appendChild(card);
