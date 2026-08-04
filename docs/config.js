@@ -6,4 +6,13 @@ const TELEGRAM_CHAT_ID = "260914312";
 
 const REVIEW_TOKEN = "_H7cy0NiK4xMnnYsgMiOcXvNwcbDp8dT";
 
+// Configurazione: dove il sito scrive la scelta della cliente (coda su GitHub,
+// letta ed elaborata da Termux). Token fine-grained ristretto SOLO a questo
+// repository, permesso "Contents: write" — nessun altro accesso.
+
+const GITHUB_TOKEN = "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";
+
+const GITHUB_REPO = "Marctie/Script-My-Nails-Professional";
+
+const GITHUB_BRANCH = "master";
 
