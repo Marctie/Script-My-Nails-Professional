@@ -10,7 +10,7 @@ const REVIEW_TOKEN = "_H7cy0NiK4xMnnYsgMiOcXvNwcbDp8dT";
 // letta ed elaborata da Termux). Token fine-grained ristretto SOLO a questo
 // repository, permesso "Contents: write" — nessun altro accesso.
 
-const GITHUB_TOKEN = "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";
+const GITHUB_TOKEN = "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";
 
 const GITHUB_REPO = "Marctie/Script-My-Nails-Professional";
 
