@@ -21,15 +21,14 @@ function saveReviewData(category, productId, data) {
   localStorage.setItem(reviewKey(category, productId), JSON.stringify(data));
 }
 
-// Manda la scelta della cliente come file nella cartella queue/ del repo
-// GitHub, usando l'API Contents (nessun server esposto, nessun tunnel).
-// Termux (live_server.py) fa polling su quella cartella, elabora la
-// richiesta e la cancella. Il token usato qui e' un GitHub fine-grained PAT
-// ristretto SOLO a questo repository, permesso "Contents: write": se
-// qualcuno lo trovasse nel sorgente della pagina potrebbe al massimo
-// scrivere/cancellare file in questo repo, nient'altro.
+// Manda la scelta della cliente a un Cloudflare Worker (WORKER_URL, vedi
+// config.js), che scrive il file nella cartella queue/ del repo GitHub al
+// posto del sito: il token GitHub reale resta nascosto lato Worker, non e'
+// mai nel sorgente pubblico della pagina, quindi GitHub non lo revoca piu'
+// automaticamente. Termux (live_server.py) fa poi polling sulla coda ed
+// elabora/cancella la richiesta, esattamente come prima.
 async function submitToLiveServer(category, productId, status, customImage) {
-  if (!GITHUB_TOKEN || !GITHUB_REPO) return; // non configurato: resta solo salvataggio locale
+  if (!WORKER_URL) return; // non configurato: resta solo salvataggio locale
 
   const data = getReviewData(category, productId);
   data.publishState = "invio in corso...";
@@ -42,23 +41,13 @@ async function submitToLiveServer(category, productId, status, customImage) {
     status,
     image_base64: status === "custom" && customImage ? customImage.split(",", 2)[1] : null,
     image_mime: status === "custom" && customImage ? (customImage.match(/data:(.*?);base64/) || [])[1] : null,
-    submitted_at: new Date().toISOString(),
   };
-  const path = `queue/${category}_${productId}_${Date.now()}.json`;
-  const contentB64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
 
   try {
-    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
-      method: "PUT",
-      headers: {
-        Authorization: `token ${GITHUB_TOKEN}`,
-        Accept: "application/vnd.github+json",
-      },
-      body: JSON.stringify({
-        message: `queue: ${category} ${productId} (${status})`,
-        content: contentB64,
-        branch: GITHUB_BRANCH || "main",
-      }),
+    const res = await fetch(WORKER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
     const latest = getReviewData(category, productId);
     latest.publishState = res.ok
@@ -67,7 +56,7 @@ async function submitToLiveServer(category, productId, status, customImage) {
     saveReviewData(category, productId, latest);
   } catch (e) {
     const latest = getReviewData(category, productId);
-    latest.publishState = "GitHub non raggiungibile (salvato solo qui)";
+    latest.publishState = "servizio non raggiungibile (salvato solo qui)";
     saveReviewData(category, productId, latest);
   }
   renderGrid();
