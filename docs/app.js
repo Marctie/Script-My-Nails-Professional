@@ -21,54 +21,53 @@ function saveReviewData(category, productId, data) {
   localStorage.setItem(reviewKey(category, productId), JSON.stringify(data));
 }
 
-function dataUrlToBlob(dataUrl) {
-  const [header, b64] = dataUrl.split(",", 2);
-  const mime = (header.match(/data:(.*?);base64/) || [])[1] || "image/jpeg";
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
-}
-
-// Manda la scelta della cliente direttamente all'API pubblica di Telegram
-// (bot dedicato in ascolto su Termux tramite polling, nessun server esposto
-// su internet). Il caption/testo segue il formato che live_server.py si
-// aspetta: MYNAILS|<token>|<categoria>|<product_id>|<stato>
+// Manda la scelta della cliente come file nella cartella queue/ del repo
+// GitHub, usando l'API Contents (nessun server esposto, nessun tunnel).
+// Termux (live_server.py) fa polling su quella cartella, elabora la
+// richiesta e la cancella. Il token usato qui e' un GitHub fine-grained PAT
+// ristretto SOLO a questo repository, permesso "Contents: write": se
+// qualcuno lo trovasse nel sorgente della pagina potrebbe al massimo
+// scrivere/cancellare file in questo repo, nient'altro.
 async function submitToLiveServer(category, productId, status, customImage) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return; // non configurato: resta solo salvataggio locale
+  if (!GITHUB_TOKEN || !GITHUB_REPO) return; // non configurato: resta solo salvataggio locale
 
   const data = getReviewData(category, productId);
   data.publishState = "invio in corso...";
   saveReviewData(category, productId, data);
   renderGrid();
 
-  const caption = `MYNAILS|${REVIEW_TOKEN || ""}|${category}|${productId}|${status}`;
-  const apiBase = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+  const payload = {
+    category,
+    product_id: productId,
+    status,
+    image_base64: status === "custom" && customImage ? customImage.split(",", 2)[1] : null,
+    image_mime: status === "custom" && customImage ? (customImage.match(/data:(.*?);base64/) || [])[1] : null,
+    submitted_at: new Date().toISOString(),
+  };
+  const path = `queue/${category}_${productId}_${Date.now()}.json`;
+  const contentB64 = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
 
   try {
-    let res;
-    if (status === "custom" && customImage) {
-      const form = new FormData();
-      form.append("chat_id", TELEGRAM_CHAT_ID);
-      form.append("caption", caption);
-      form.append("document", dataUrlToBlob(customImage), `${productId}.jpg`);
-      res = await fetch(`${apiBase}/sendDocument`, { method: "POST", body: form });
-    } else {
-      res = await fetch(`${apiBase}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: caption }),
-      });
-    }
-    const result = await res.json();
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/contents/${path}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `token ${GITHUB_TOKEN}`,
+        Accept: "application/vnd.github+json",
+      },
+      body: JSON.stringify({
+        message: `queue: ${category} ${productId} (${status})`,
+        content: contentB64,
+        branch: GITHUB_BRANCH || "main",
+      }),
+    });
     const latest = getReviewData(category, productId);
-    latest.publishState = result.ok
-      ? "inviato al bot (verra' pubblicato a breve)"
-      : `errore invio: ${result.description || "sconosciuto"}`;
+    latest.publishState = res.ok
+      ? "inviato (verra' pubblicato a breve)"
+      : `errore invio: HTTP ${res.status}`;
     saveReviewData(category, productId, latest);
   } catch (e) {
     const latest = getReviewData(category, productId);
-    latest.publishState = "Telegram non raggiungibile (salvato solo qui)";
+    latest.publishState = "GitHub non raggiungibile (salvato solo qui)";
     saveReviewData(category, productId, latest);
   }
   renderGrid();
