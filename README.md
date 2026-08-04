@@ -68,13 +68,26 @@ manuale, indipendente da quello automatico sopra.
 
 ## Pubblicazione automatica in tempo reale (live_server.py + Termux-Launcher)
 
-Invece del flusso manuale sopra, `app/live_server.py` e' un bot che sta sempre acceso su
-Termux (tablet Android sempre connesso, gestito da Termux-Launcher come gli altri bot
-Telegram gia' in uso). NON e' un server esposto su internet: il sito pubblico manda foto
-e scelta della cliente **direttamente all'API di Telegram** (bot dedicato), e questo
-script le riceve facendo polling (`getUpdates`), esattamente come tutti gli altri bot del
-progetto — niente tunnel, niente porta aperta, niente IP pubblico da gestire. La chiave
-WooCommerce resta sempre sul tablet, mai nella pagina pubblica.
+Invece del flusso manuale sopra, `app/live_server.py` e' un processo che sta sempre acceso
+su Termux (tablet Android sempre connesso, gestito da Termux-Launcher come gli altri bot
+Telegram gia' in uso), **completamente autonomo e indipendente da ogni altro bot**
+(nessuna dipendenza da "Centro di Comando" o da altri processi: se va offline, e' il
+watchdog di Termux-Launcher, gia' in uso per tutti gli altri bot, a farlo ripartire da
+solo). NON e' un server esposto su internet e NON serve alcun tunnel:
+
+- **In ingresso**: il sito pubblico scrive ogni scelta della cliente (categoria, prodotto,
+  stato, eventuale foto) come file JSON nella cartella `queue/` del **repository GitHub**,
+  usando l'API Contents (nessun bot Telegram coinvolto: un bot non puo' mai ricevere via
+  `getUpdates` i messaggi scritti da un altro bot, limite strutturale di Telegram scoperto
+  e verificato in una sessione precedente — per questo l'ingresso ora passa da GitHub, non
+  piu' da Telegram). `live_server.py` fa polling su quella cartella (ogni ~10 secondi),
+  elabora ogni richiesta e la cancella dalla coda.
+- **In uscita**: tutte le notifiche (ricezione, backup, upload, conferma o errore) vengono
+  mandate SOLO tramite il bot Telegram **"My Nails Live"** (gia' esistente, dedicato a
+  questo bot) direttamente alla tua chat — un invio (`sendMessage`) funziona sempre, non
+  soffre del limite sopra perche' non deve mai "ricevere" nulla.
+
+La chiave WooCommerce resta sempre sul tablet, mai nella pagina pubblica.
 
 Questo progetto vive come cartella sorella di `Termux-Launcher/` (dentro `Dev/Bot
 Telegram/`), esattamente come gli altri bot, e usa la stessa infrastruttura:
@@ -86,43 +99,53 @@ Telegram/`), esattamente come gli altri bot, e usa la stessa infrastruttura:
 - Riga gia' aggiunta in `Termux-Launcher/bots.conf`:
   `nails_live|My Nails - Pubblicazione Foto|Script My Nails Professional|app/live_server.py|nails_live.log`
 
-Setup:
-1. Crea un bot Telegram **dedicato** (diverso da ogni altro bot del progetto, altrimenti
-   due processi in polling sullo stesso token vanno in conflitto): parla con `@BotFather`,
-   `/newbot`, copia il token. Avvia una volta la chat col nuovo bot (Start) cosi' puo'
-   mandarti messaggi.
-2. Su Termux, nel `.env` del progetto imposta:
+Setup (una tantum):
+1. Crea un **GitHub fine-grained Personal Access Token**: github.com -> Settings ->
+   Developer settings -> Fine-grained tokens -> Generate new -> **Only select
+   repositories** -> scegli solo questo repo -> permessi **Repository permissions ->
+   Contents: Read and write** (nessun altro permesso). Questo token va incollato in
+   `docs/config.js` (vedi sotto): e' pubblico nel sorgente della pagina, quindi il rischio
+   se qualcuno lo trovasse e' limitato a scrivere/cancellare file in questo repository,
+   niente di piu' — revocabile in un click dalle impostazioni GitHub in qualsiasi momento.
+2. Crea un secondo token fine-grained identico (stessi permessi, stesso repo) da tenere
+   **privato**, solo sul tablet: va nel `.env` di Termux come `GITHUB_TOKEN`, usato da
+   `live_server.py` per leggere/cancellare la coda. Separato dal primo cosi' puoi revocare
+   quello pubblico senza rompere quello che gira su Termux.
+3. Su Termux, nel `.env` del progetto imposta:
    ```
-   REVIEW_API_TOKEN=...       (gia' presente, riusato come filtro anti-spam)
-   TELEGRAM_LIVE_BOT_TOKEN=... (il token del bot dedicato appena creato)
-   TELEGRAM_LIVE_CHAT_ID=...   (il tuo chat id Telegram, es. quello gia' usato per gli altri bot)
+   GITHUB_TOKEN=...           (il secondo token, privato, del punto 2)
+   GITHUB_REPO=Marctie/Script-My-Nails-Professional
+   GITHUB_BRANCH=master
+   TELEGRAM_LIVE_BOT_TOKEN=... (token del bot "My Nails Live")
+   TELEGRAM_LIVE_CHAT_ID=...   (il tuo chat id Telegram)
    ```
-3. Lancia (una volta, o dopo aver modificato requirements.txt):
+4. Lancia (una volta, o dopo aver modificato requirements.txt):
    `bash ~/bots/Termux-Launcher/install.sh` — crea il venv e installa le dipendenze leggere.
-4. Avvia/ferma/riavvia con la dashboard su `http://127.0.0.1:8765` (voce "My Nails -
+5. Avvia/ferma/riavvia con la dashboard su `http://127.0.0.1:8765` (voce "My Nails -
    Pubblicazione Foto"), oppure da terminale:
    `bash ~/bots/Termux-Launcher/bot_ctl.sh nails_live start|stop|restart`
-5. Apri `docs/config.js` e imposta:
+6. Apri `docs/config.js` e imposta:
    ```js
-   const TELEGRAM_BOT_TOKEN = "lo-stesso-valore-di-TELEGRAM_LIVE_BOT_TOKEN";
-   const TELEGRAM_CHAT_ID = "lo-stesso-valore-di-TELEGRAM_LIVE_CHAT_ID";
-   const REVIEW_TOKEN = "lo-stesso-valore-di-REVIEW_API_TOKEN";
+   const GITHUB_TOKEN = "il-primo-token-del-punto-1-quello-pubblico";
+   const GITHUB_REPO = "Marctie/Script-My-Nails-Professional";
+   const GITHUB_BRANCH = "master";
    ```
    Questo file NON viene sovrascritto da `build_static_site.py` una volta creato, quindi
    resta configurato anche rigenerando il sito.
-6. Committa e pusha: la pagina pubblica ora invia automaticamente ogni scelta al bot via
-   Telegram, che pubblica subito su WooCommerce.
+7. Committa e pusha: la pagina pubblica ora scrive automaticamente ogni scelta nella coda
+   GitHub, `live_server.py` su Termux la vede entro ~10 secondi e pubblica su WooCommerce.
 
 Monitoraggio: la dashboard di Termux-Launcher (http://127.0.0.1:8765) mostra gia' stato
 attivo/fermo, uptime, CPU/RAM e ultime righe di log per "nails_live" come per ogni altro
-bot. In aggiunta, live_server.py offre (solo localmente su Termux, non su internet):
+bot (con riavvio automatico via watchdog se il processo dovesse fermarsi). In aggiunta,
+live_server.py offre (solo localmente su Termux, non su internet):
 - `GET http://127.0.0.1:5001/api/health` -> stato + uptime
 - `GET http://127.0.0.1:5001/api/stats` -> contatori (richieste, pubblicazioni, rifiuti, errori) ed eventi recenti
 - Log dettagliato in `logs/live_server.log` (oltre al log principale che Termux-Launcher
   tiene in `logs/nails_live.log`)
-- Notifiche dettagliate su Telegram (bot "Centro di Comando") per ogni azione sui singoli
+- Notifiche dettagliate su Telegram (bot "My Nails Live") per ogni azione sui singoli
   prodotti: ricezione foto, backup della foto attuale prima della sostituzione, upload
-  riuscito/fallito, conferma "nessuna modifica" della cliente.
+  riuscito/fallito, conferma "nessuna modifica" della cliente, o errore con motivo.
 
 ## Recupero in caso di errore
 
