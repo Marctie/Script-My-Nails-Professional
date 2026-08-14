@@ -7,18 +7,67 @@ function reviewKey(category, productId) {
   return `review_${category}_${productId}`;
 }
 
+// customImage (la foto in base64) non viene MAI scritta su localStorage:
+// serve solo per l'anteprima e per l'invio al Worker, quindi la teniamo in
+// memoria (per la sessione corrente) per non riempire la quota del browser
+// (~5-10MB) dopo poche foto.
+const customImageCache = {};
+
 function getReviewData(category, productId) {
-  const raw = localStorage.getItem(reviewKey(category, productId));
-  if (!raw) return { status: "pending" };
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    return { status: raw }; // compatibilita' con vecchio formato (solo stringa)
+  const key = reviewKey(category, productId);
+  const raw = localStorage.getItem(key);
+  let data;
+  if (!raw) data = { status: "pending" };
+  else {
+    try {
+      data = JSON.parse(raw);
+    } catch (e) {
+      data = { status: raw }; // compatibilita' con vecchio formato (solo stringa)
+    }
   }
+  if (customImageCache[key]) data.customImage = customImageCache[key];
+  return data;
 }
 
 function saveReviewData(category, productId, data) {
-  localStorage.setItem(reviewKey(category, productId), JSON.stringify(data));
+  const key = reviewKey(category, productId);
+  const { customImage, ...toPersist } = data;
+  if (customImage) customImageCache[key] = customImage;
+  try {
+    localStorage.setItem(key, JSON.stringify(toPersist));
+  } catch (e) {
+    console.warn("localStorage pieno, salvo solo in memoria per questa sessione:", e);
+  }
+}
+
+// Ridimensiona/comprime l'immagine lato client prima di salvarla e inviarla,
+// cosi' il payload resta piccolo (la foto di un telefono puo' essere 3-8MB,
+// troppo per l'API "Contents" di GitHub, che tronca i file oltre ~1MB quando
+// vengono riletti da live_server.py).
+function resizeImage(file, maxSize = 1600, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxSize || height > maxSize) {
+          const scale = maxSize / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 // Manda la scelta della cliente a un Cloudflare Worker (WORKER_URL, vedi
@@ -70,18 +119,15 @@ function setReview(category, productId, status) {
   submitToLiveServer(category, productId, status, data.customImage);
 }
 
-function setCustomImage(category, productId, file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const data = getReviewData(category, productId);
-    data.status = "custom";
-    data.customImage = reader.result; // data URL base64
-    data.customImageName = file.name;
-    data.publishState = null; // nuova foto: serve una nuova conferma prima di pubblicarla
-    saveReviewData(category, productId, data);
-    renderGrid();
-  };
-  reader.readAsDataURL(file);
+async function setCustomImage(category, productId, file) {
+  const resized = await resizeImage(file);
+  const data = getReviewData(category, productId);
+  data.status = "custom";
+  data.customImage = resized; // data URL base64, ridimensionata/compressa
+  data.customImageName = file.name;
+  data.publishState = null; // nuova foto: serve una nuova conferma prima di pubblicarla
+  saveReviewData(category, productId, data);
+  renderGrid();
 }
 
 // Invio effettivo alla pubblicazione live: parte SOLO quando la cliente

@@ -237,7 +237,12 @@ def github_queue_polling_loop():
         try:
             for f in list_queue_files():
                 try:
-                    file_resp = requests.get(f["url"], headers=github_headers(), timeout=20)
+                    # Usiamo l'API "git blobs" (non "contents") per leggere il file:
+                    # l'API contents tronca il campo "content" (vuoto, encoding "none")
+                    # per file oltre ~1MB, causando un JSONDecodeError su stringa vuota
+                    # quando la coda contiene una foto in base64 di dimensioni maggiori.
+                    blob_url = f"https://api.github.com/repos/{GITHUB_REPO}/git/blobs/{f['sha']}"
+                    file_resp = requests.get(blob_url, headers=github_headers(), timeout=20)
                     file_resp.raise_for_status()
                     content = base64.b64decode(file_resp.json()["content"])
                     payload = json.loads(content)
