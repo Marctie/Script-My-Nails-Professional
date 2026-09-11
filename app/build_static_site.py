@@ -163,6 +163,7 @@ h1 { font-size: 20px; margin: 0; }
 button.act { flex: 1; padding: 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
 .no-change { background: #2e7d32; color: white; }
 .no-change.active { outline: 3px solid #a5d6a7; }
+.confirm-publish { background: #e65100; color: white; font-weight: bold; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-left: 6px; }
 .badge.rejected { background: #c8e6c9; color: #256029; }
 .badge.pending { background: #eeeeee; color: #555; }
@@ -185,70 +186,137 @@ function reviewKey(category, productId) {
   return `review_${category}_${productId}`;
 }
 
+// customImage (la foto in base64) non viene MAI scritta su localStorage:
+// serve solo per l'anteprima e per l'invio al Worker, quindi la teniamo in
+// memoria (per la sessione corrente) per non riempire la quota del browser
+// (~5-10MB) dopo poche foto.
+const customImageCache = {};
+
 function getReviewData(category, productId) {
-  const raw = localStorage.getItem(reviewKey(category, productId));
-  if (!raw) return { status: "pending" };
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    return { status: raw }; // compatibilita' con vecchio formato (solo stringa)
+  const key = reviewKey(category, productId);
+  const raw = localStorage.getItem(key);
+  let data;
+  if (!raw) data = { status: "pending" };
+  else {
+    try {
+      data = JSON.parse(raw);
+    } catch (e) {
+      data = { status: raw }; // compatibilita' con vecchio formato (solo stringa)
+    }
   }
+  if (customImageCache[key]) data.customImage = customImageCache[key];
+  return data;
 }
 
 function saveReviewData(category, productId, data) {
-  localStorage.setItem(reviewKey(category, productId), JSON.stringify(data));
+  const key = reviewKey(category, productId);
+  const { customImage, ...toPersist } = data;
+  if (customImage) customImageCache[key] = customImage;
+  try {
+    localStorage.setItem(key, JSON.stringify(toPersist));
+  } catch (e) {
+    console.warn("localStorage pieno, salvo solo in memoria per questa sessione:", e);
+  }
 }
 
-function dataUrlToBlob(dataUrl) {
-  const [header, b64] = dataUrl.split(",", 2);
-  const mime = (header.match(/data:(.*?);base64/) || [])[1] || "image/jpeg";
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mime });
+// Ridimensiona/comprime l'immagine lato client prima di salvarla e inviarla,
+// cosi' il payload resta piccolo (la foto di un telefono puo' essere 3-8MB,
+// troppo per l'API "Contents" di GitHub, che tronca i file oltre ~1MB quando
+// vengono riletti da live_server.py).
+function resizeImage(file, maxSize = 1600, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxSize || height > maxSize) {
+          const scale = maxSize / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
-// Manda la scelta della cliente direttamente all'API pubblica di Telegram
-// (bot dedicato in ascolto su Termux tramite polling, nessun server esposto
-// su internet). Il caption/testo segue il formato che live_server.py si
-// aspetta: MYNAILS|<token>|<categoria>|<product_id>|<stato>
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Manda la scelta della cliente a un Cloudflare Worker (WORKER_URL, vedi
+// config.js), che scrive il file nella cartella queue/ del repo GitHub al
+// posto del sito: il token GitHub reale resta nascosto lato Worker, non e'
+// mai nel sorgente pubblico della pagina, quindi GitHub non lo revoca piu'
+// automaticamente. Termux (live_server.py) fa poi polling sulla coda ed
+// elabora/cancella la richiesta, esattamente come prima.
+//
+// Ritenta fino a 3 volte (con una breve pausa crescente) prima di arrendersi:
+// una connessione instabile (es. rete mobile che va e viene) non deve far
+// perdere una foto che altrimenti sarebbe stata inviata correttamente al
+// tentativo successivo. La foto resta comunque salvata nel browser (vedi
+// customImageCache/saveReviewData) finche' non risulta "inviato" con
+// successo, quindi anche in caso di fallimento totale il pulsante "Conferma
+// e pubblica" ricompare per riprovare manualmente piu' tardi.
+const SUBMIT_MAX_ATTEMPTS = 3;
+const SUBMIT_RETRY_DELAYS_MS = [2000, 5000];
+
 async function submitToLiveServer(category, productId, status, customImage) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return; // non configurato: resta solo salvataggio locale
+  if (!WORKER_URL) return; // non configurato: resta solo salvataggio locale
 
   const data = getReviewData(category, productId);
   data.publishState = "invio in corso...";
   saveReviewData(category, productId, data);
   renderGrid();
 
-  const caption = `MYNAILS|${REVIEW_TOKEN || ""}|${category}|${productId}|${status}`;
-  const apiBase = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
+  const payload = {
+    category,
+    product_id: productId,
+    status,
+    image_base64: status === "custom" && customImage ? customImage.split(",", 2)[1] : null,
+    image_mime: status === "custom" && customImage ? (customImage.match(/data:(.*?);base64/) || [])[1] : null,
+  };
 
-  try {
-    let res;
-    if (status === "custom" && customImage) {
-      const form = new FormData();
-      form.append("chat_id", TELEGRAM_CHAT_ID);
-      form.append("caption", caption);
-      form.append("document", dataUrlToBlob(customImage), `${productId}.jpg`);
-      res = await fetch(`${apiBase}/sendDocument`, { method: "POST", body: form });
-    } else {
-      res = await fetch(`${apiBase}/sendMessage`, {
+  let lastOutcome = null;
+  for (let attempt = 1; attempt <= SUBMIT_MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(WORKER_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: caption }),
+        body: JSON.stringify(payload),
       });
+      if (res.ok) {
+        lastOutcome = "inviato (verra' pubblicato a breve)";
+        break;
+      }
+      lastOutcome = `errore invio: HTTP ${res.status}`;
+      // Un errore HTTP del Worker (es. 502/500) puo' essere transitorio
+      // quanto un errore di rete: vale la pena ritentare comunque, non solo
+      // sui fallimenti di fetch().
+    } catch (e) {
+      lastOutcome = "servizio non raggiungibile (salvato solo qui)";
     }
-    const result = await res.json();
-    const latest = getReviewData(category, productId);
-    latest.publishState = result.ok
-      ? "inviato al bot (verra' pubblicato a breve)"
-      : `errore invio: ${result.description || "sconosciuto"}`;
-    saveReviewData(category, productId, latest);
-  } catch (e) {
-    const latest = getReviewData(category, productId);
-    latest.publishState = "Telegram non raggiungibile (salvato solo qui)";
-    saveReviewData(category, productId, latest);
+    if (attempt < SUBMIT_MAX_ATTEMPTS) {
+      const latest = getReviewData(category, productId);
+      latest.publishState = `${lastOutcome} — ritento (${attempt}/${SUBMIT_MAX_ATTEMPTS})...`;
+      saveReviewData(category, productId, latest);
+      renderGrid();
+      await sleep(SUBMIT_RETRY_DELAYS_MS[attempt - 1]);
+    }
   }
+
+  const latest = getReviewData(category, productId);
+  latest.publishState = lastOutcome;
+  saveReviewData(category, productId, latest);
   renderGrid();
 }
 
@@ -260,18 +328,23 @@ function setReview(category, productId, status) {
   submitToLiveServer(category, productId, status, data.customImage);
 }
 
-function setCustomImage(category, productId, file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    const data = getReviewData(category, productId);
-    data.status = "custom";
-    data.customImage = reader.result; // data URL base64
-    data.customImageName = file.name;
-    saveReviewData(category, productId, data);
-    renderGrid();
-    submitToLiveServer(category, productId, "custom", data.customImage);
-  };
-  reader.readAsDataURL(file);
+async function setCustomImage(category, productId, file) {
+  const resized = await resizeImage(file);
+  const data = getReviewData(category, productId);
+  data.status = "custom";
+  data.customImage = resized; // data URL base64, ridimensionata/compressa
+  data.customImageName = file.name;
+  data.publishState = null; // nuova foto: serve una nuova conferma prima di pubblicarla
+  saveReviewData(category, productId, data);
+  renderGrid();
+}
+
+// Invio effettivo alla pubblicazione live: parte SOLO quando la cliente
+// clicca il pulsante di conferma, mai automaticamente al caricamento.
+function confirmPublish(category, productId) {
+  const data = getReviewData(category, productId);
+  if (!data.customImage) return;
+  submitToLiveServer(category, productId, "custom", data.customImage);
 }
 
 async function detectCategories() {
@@ -333,6 +406,14 @@ function renderGrid() {
       ? `<div class="publish-state">${data.publishState}</div>`
       : "";
 
+    // Il pulsante di conferma compare solo se c'e' una foto caricata non
+    // ancora inviata (o dopo un errore di invio, per poter riprovare):
+    // niente pubblicazione automatica al solo caricamento del file.
+    const notYetSent = !data.publishState || data.publishState.startsWith("errore");
+    const confirmButton = status === "custom" && data.customImage && notYetSent
+      ? `<button class="act confirm-publish" onclick="confirmPublish('${currentCategory}', ${item.product_id})">Conferma e pubblica questa foto</button>`
+      : "";
+
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = `
@@ -353,6 +434,7 @@ function renderGrid() {
       <div class="actions">
         <button class="act no-change ${status === 'no_change' ? 'active' : ''}"
           onclick="setReview('${currentCategory}', ${item.product_id}, 'no_change')">Va bene cosi', nessuna modifica</button>
+        ${confirmButton}
       </div>
     `;
     grid.appendChild(card);
