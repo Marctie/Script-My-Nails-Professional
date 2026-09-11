@@ -262,14 +262,38 @@ def _clear_queue_failure(filename: str) -> None:
         save_json(QUEUE_RETRY_STATE_PATH, state)
 
 
+# Notifica una tantum all'avvio se la coda contiene gia' delle voci: succede
+# quando il bot era spento/irraggiungibile mentre la cliente caricava foto
+# (il Worker Cloudflare scrive comunque in coda su GitHub, indipendentemente
+# dal bot: nulla si perde, ma l'utente non lo sa finche' non gliel'lo diciamo
+# esplicitamente invece di lasciare che se ne accorga dalle notifiche singole
+# sparse). Si azzera automaticamente ad ogni riavvio del processo.
+_startup_backlog_notified = False
+_startup_backlog_remaining = 0
+
+
 def github_queue_polling_loop():
+    global _startup_backlog_notified, _startup_backlog_remaining
     if not GITHUB_TOKEN:
         logger.error("GITHUB_TOKEN non impostato in .env, polling della coda GitHub non avviato.")
         return
     logger.info("Polling della coda GitHub avviato per My Nails Live.")
     while True:
         try:
-            for f in list_queue_files():
+            queue_files = list_queue_files()
+
+            if not _startup_backlog_notified:
+                _startup_backlog_notified = True
+                if queue_files:
+                    _startup_backlog_remaining = len(queue_files)
+                    logger.info(f"Trovate {len(queue_files)} voci in coda all'avvio (arretrato).")
+                    notify(
+                        f"📥 My Nails: trovate {len(queue_files)} foto/scelte in coda in attesa "
+                        f"(probabilmente arrivate mentre il bot era spento o non raggiungibile). "
+                        f"Nessuna e' andata persa: le elaboro ora una alla volta."
+                    )
+
+            for f in queue_files:
                 try:
                     # Usiamo l'API "git blobs" (non "contents") per leggere il file:
                     # l'API contents tronca il campo "content" (vuoto, encoding "none")
@@ -297,6 +321,10 @@ def github_queue_polling_loop():
                     if success:
                         delete_queue_file(f["path"], f["sha"])
                         _clear_queue_failure(f["name"])
+                        if _startup_backlog_remaining > 0:
+                            _startup_backlog_remaining -= 1
+                            if _startup_backlog_remaining == 0:
+                                notify("✅ My Nails: arretrato della coda smaltito, tutto elaborato.")
                     else:
                         attempts = _register_queue_failure(f["name"])
                         if attempts >= QUEUE_MAX_ATTEMPTS:
