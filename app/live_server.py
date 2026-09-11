@@ -152,7 +152,12 @@ def publish_image(category: str, product_id: int, image_path: Path):
     return media_id
 
 
-def process_choice(category: str, product_id: str, status: str, image_bytes: bytes = None, image_mime: str = ""):
+def process_choice(category: str, product_id: str, status: str, image_bytes: bytes = None, image_mime: str = "") -> bool:
+    """Ritorna True se la voce puo' essere considerata definita (pubblicata
+    con successo, o registrata senza bisogno di pubblicare) e quindi rimossa
+    dalla coda; False se la pubblicazione e' fallita e andrebbe ritentata
+    (vedi QUEUE_MAX_ATTEMPTS in github_queue_polling_loop) prima di darla
+    per persa."""
     STATS["requests"] += 1
 
     review_state_path = processed_dir_for(category) / "review_state.json"
@@ -165,7 +170,7 @@ def process_choice(category: str, product_id: str, status: str, image_bytes: byt
         STATS["errors"] += 1
         logger.error(f"Prodotto {product_id} non trovato in categoria {category}")
         notify(f"⚠️ My Nails: prodotto {product_id} non trovato in categoria {category}, scelta ignorata.")
-        return
+        return True  # non c'e' nulla da ritentare: il prodotto non esiste nel manifest
 
     log_path = processed_dir_for(category) / "live_publish_log.json"
     log = load_json(log_path, {})
@@ -193,13 +198,13 @@ def process_choice(category: str, product_id: str, status: str, image_bytes: byt
             record_event({"category": category, "product_id": product_id, "action": f"registrato ({status})"})
             logger.info(f"[{category}] {product_id} registrato senza pubblicazione (status={status})")
             notify(f"✔️ My Nails: \"{product_name}\" ({category}) confermato dalla cliente, nessuna modifica alla foto.")
+        return True
     except Exception as e:
-        log[product_id] = {"status": f"errore: {e}"}
-        save_json(log_path, log)
         STATS["errors"] += 1
         record_event({"category": category, "product_id": product_id, "action": f"errore: {e}"})
         logger.exception(f"[{category}] {product_id} errore durante la pubblicazione")
-        notify(f"❌ My Nails: pubblicazione FALLITA per \"{product_name}\" ({category}), prodotto {product_id}: {e}")
+        notify(f"⚠️ My Nails: pubblicazione fallita per \"{product_name}\" ({category}), prodotto {product_id}: {e} — ritento automaticamente.")
+        return False
 
 
 def github_headers():
@@ -218,14 +223,43 @@ def list_queue_files():
     return [f for f in r.json() if f["name"].endswith(".json")]
 
 
-def delete_queue_file(path: str, sha: str):
+def delete_queue_file(path: str, sha: str) -> bool:
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
-    requests.delete(
+    r = requests.delete(
         url,
         headers=github_headers(),
         json={"message": f"queue: elaborato {path}", "sha": sha, "branch": GITHUB_BRANCH},
         timeout=20,
     )
+    if not r.ok:
+        logger.error(f"Cancellazione da coda fallita per {path}: HTTP {r.status_code} {r.text[:300]}")
+    return r.ok
+
+
+# Una foto la cui pubblicazione fallisce (WordPress irraggiungibile, errore
+# temporaneo, ecc.) NON deve sparire dalla coda al primo tentativo: resta li'
+# e viene ritentata ai prossimi cicli di polling. Per evitare pero' di
+# ritentare all'infinito una voce rotta in modo permanente (es. dati
+# corrotti), ogni voce ha un numero massimo di tentativi; dopo di che viene
+# rimossa comunque, ma con una notifica chiara che serve ricaricare la foto
+# a mano, invece di sparire in silenzio (bug corretto il 2026-09-11: prima
+# la voce veniva sempre cancellata dopo un solo tentativo, riuscito o no).
+QUEUE_MAX_ATTEMPTS = 5
+QUEUE_RETRY_STATE_PATH = ROOT / "status" / "queue_retry_state.json"
+
+
+def _register_queue_failure(filename: str) -> int:
+    state = load_json(QUEUE_RETRY_STATE_PATH, {})
+    state[filename] = state.get(filename, 0) + 1
+    save_json(QUEUE_RETRY_STATE_PATH, state)
+    return state[filename]
+
+
+def _clear_queue_failure(filename: str) -> None:
+    state = load_json(QUEUE_RETRY_STATE_PATH, {})
+    if filename in state:
+        del state[filename]
+        save_json(QUEUE_RETRY_STATE_PATH, state)
 
 
 def github_queue_polling_loop():
@@ -255,11 +289,26 @@ def github_queue_polling_loop():
                         image_bytes = base64.b64decode(payload["image_base64"])
 
                     if category and product_id and status in ("no_change", "custom"):
-                        process_choice(category, product_id, status, image_bytes, payload.get("image_mime", ""))
+                        success = process_choice(category, product_id, status, image_bytes, payload.get("image_mime", ""))
                     else:
                         logger.warning(f"Voce di coda non valida, ignorata: {f['name']}")
+                        success = True
 
-                    delete_queue_file(f["path"], f["sha"])
+                    if success:
+                        delete_queue_file(f["path"], f["sha"])
+                        _clear_queue_failure(f["name"])
+                    else:
+                        attempts = _register_queue_failure(f["name"])
+                        if attempts >= QUEUE_MAX_ATTEMPTS:
+                            logger.error(f"Voce di coda {f['name']} fallita {attempts} volte, rinuncio e la rimuovo.")
+                            notify(
+                                f"❌ My Nails: pubblicazione fallita {attempts} volte per {f['name']}, "
+                                f"rinuncio ai tentativi automatici — la cliente deve ricaricare la foto manualmente."
+                            )
+                            delete_queue_file(f["path"], f["sha"])
+                            _clear_queue_failure(f["name"])
+                        else:
+                            logger.warning(f"Voce di coda {f['name']} non riuscita (tentativo {attempts}/{QUEUE_MAX_ATTEMPTS}), la ritento al prossimo ciclo.")
                 except Exception:
                     logger.exception(f"Errore elaborando {f.get('name')}")
         except Exception as e:
