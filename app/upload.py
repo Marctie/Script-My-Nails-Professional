@@ -24,6 +24,8 @@ load_dotenv(ROOT / ".env")
 SITE_URL = os.environ["WC_SITE_URL"].rstrip("/")
 CONSUMER_KEY = os.environ["WC_CONSUMER_KEY"]
 CONSUMER_SECRET = os.environ["WC_CONSUMER_SECRET"]
+WP_USERNAME = os.environ["WP_USERNAME"]
+WP_APP_PASSWORD = os.environ["WP_APP_PASSWORD"]
 
 wcapi = API(
     url=SITE_URL,
@@ -48,7 +50,10 @@ def upload_to_media_library(image_path: Path) -> int:
         "Content-Disposition": f'attachment; filename="{image_path.name}"',
         "Content-Type": content_type,
     }
-    auth = (CONSUMER_KEY, CONSUMER_SECRET)
+    # L'endpoint /wp/v2/media e' core WordPress, non WooCommerce: richiede le
+    # credenziali WP (utente + Application Password), NON la consumer key/secret
+    # di WooCommerce (che qui dava 401 "nome utente sconosciuto").
+    auth = (WP_USERNAME, WP_APP_PASSWORD)
     resp = requests.post(media_endpoint, headers=headers, data=file_bytes, auth=auth, timeout=60)
     resp.raise_for_status()
     return resp.json()["id"]
