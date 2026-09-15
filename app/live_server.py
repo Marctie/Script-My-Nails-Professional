@@ -145,8 +145,44 @@ def backup_live_image(category: str, product_id: int):
         notify(f"⚠️ My Nails: backup della foto attuale FALLITO per il prodotto {product_id} ({category}): {e}")
 
 
+def current_image_filename(product_id: int) -> str | None:
+    """Nome file dell'immagine ATTUALMENTE live su WooCommerce (prima della
+    sostituzione), preso dall'URL. Serve per rinominare la nuova foto con lo
+    stesso nome di quella che va a sostituire, invece del nome generato da
+    ChatGPT/altro strumento lato cliente (es. "image (3).png")."""
+    try:
+        resp = wcapi.get(f"products/{product_id}")
+        resp.raise_for_status()
+        images = resp.json().get("images") or []
+        if not images:
+            return None
+        url = images[0]["src"]
+        return Path(url.split("?")[0]).name
+    except Exception as e:
+        logger.warning(f"Impossibile leggere il nome file attuale per il prodotto {product_id}: {e}")
+        return None
+
+
+def rename_to_match_original(category: str, product_id: int, image_path: Path) -> Path:
+    """Rinomina image_path in modo che il NOME (senza estensione) coincida con
+    quello della foto attualmente live, mantenendo l'estensione reale del file
+    caricato (il formato puo' differire, es. cliente carica un .png al posto
+    di un .jpg)."""
+    original_name = current_image_filename(product_id)
+    if not original_name:
+        return image_path
+    target_stem = Path(original_name).stem
+    new_path = image_path.with_name(f"{target_stem}{image_path.suffix}")
+    if new_path == image_path:
+        return image_path
+    image_path.replace(new_path)
+    logger.info(f"[{category}] {product_id}: foto rinominata in '{new_path.name}' (era '{image_path.name}') per corrispondere all'originale.")
+    return new_path
+
+
 def publish_image(category: str, product_id: int, image_path: Path):
     backup_live_image(category, product_id)
+    image_path = rename_to_match_original(category, product_id, image_path)
     media_id = upload_to_media_library(image_path)
     set_product_image(product_id, media_id)
     return media_id
