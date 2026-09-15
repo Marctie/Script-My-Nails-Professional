@@ -1,5 +1,5 @@
 
-const CATEGORIES_HINT = ["color-gel", "acrygel", "semi-permanente"];
+const CATEGORIES_HINT = ["color-gel", "acrygel", "semi-permanente", "gel-unghie", "attrezzi-utensili", "basi-finish", "1", "2", "3", "4", "5", "preparati-liquidi-igienizzanti", "starter-kit"];
 let currentCategory = null;
 let currentItems = [];
 
