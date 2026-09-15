@@ -1,5 +1,29 @@
 
 const CATEGORIES_HINT = ["color-gel", "acrygel", "semi-permanente", "gel-unghie", "attrezzi-utensili", "basi-finish", "1", "2", "3", "4", "5", "preparati-liquidi-igienizzanti", "starter-kit"];
+
+// Alcune categorie WooCommerce hanno uno slug numerico invece che testuale
+// (impostato cosi' dal proprietario del sito, non modificabile da qui senza
+// toccare le categorie su WooCommerce stesso) - qui solo il nome mostrato
+// all'utente, lo slug resta invariato per data/<slug>.json e assets/<slug>/.
+const CATEGORY_LABELS = {
+  "color-gel": "Color Gel",
+  "acrygel": "Acrygel",
+  "semi-permanente": "Semi-permanente",
+  "gel-unghie": "Gel Unghie",
+  "attrezzi-utensili": "Attrezzi / Utensili",
+  "basi-finish": "Basi / Finish",
+  "1": "Liquidi e Preparatori",
+  "2": "Pennelli",
+  "3": "Lime e Buffer",
+  "4": "Lampade e Accessori",
+  "5": "Fresa e Punte",
+  "preparati-liquidi-igienizzanti": "Preparatori / Liquidi / Igienizzanti",
+  "starter-kit": "Starter Kit",
+};
+
+function categoryLabel(cat) {
+  return CATEGORY_LABELS[cat] || cat;
+}
 let currentCategory = null;
 let currentItems = [];
 
@@ -185,7 +209,7 @@ async function init() {
   tabs.innerHTML = "";
   categories.forEach(cat => {
     const btn = document.createElement("button");
-    btn.textContent = cat;
+    btn.textContent = categoryLabel(cat);
     btn.dataset.cat = cat;
     btn.onclick = () => selectCategory(cat);
     tabs.appendChild(btn);
@@ -265,7 +289,7 @@ function renderGrid() {
   });
 
   document.getElementById("stats").innerText =
-    `Categoria: ${currentCategory} | Totale: ${currentItems.length} | Foto proprie caricate: ${custom} | Nessuna modifica: ${noChange} | Da rivedere: ${pending}`;
+    `Categoria: ${categoryLabel(currentCategory)} | Totale: ${currentItems.length} | Foto proprie caricate: ${custom} | Nessuna modifica: ${noChange} | Da rivedere: ${pending}`;
 }
 
 function exportResults() {
