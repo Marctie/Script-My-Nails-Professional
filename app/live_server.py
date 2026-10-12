@@ -243,6 +243,67 @@ def process_choice(category: str, product_id: str, status: str, image_bytes: byt
         return False
 
 
+# --- Editor della Home (hero: foto + testi) ---------------------------------
+# Richieste con chiave "home_hero" nel JSON di coda. Logica in home_editor.py.
+HOME_EDITOR_PIN = os.environ.get("HOME_EDITOR_PIN")  # facoltativo: se impostato, le richieste devono essere firmate
+HOME_BACKUP_DIR = ROOT / "home_editor_backups"
+WP_USERNAME_HOME = os.environ.get("WP_USERNAME", "")
+WP_APP_PASSWORD_HOME = os.environ.get("WP_APP_PASSWORD", "")
+_home_seen_sigs: set = set()
+_home_lock = threading.Lock()
+
+
+def process_home_hero(payload: dict) -> bool:
+    """True = richiesta chiusa (ok o rifiutata); False = errore temporaneo, da ritentare."""
+    import home_editor as he
+
+    STATS["requests"] += 1
+    data = payload.get("home_hero") or {}
+    action = data.get("action", "publish")
+    if HOME_EDITOR_PIN and not he.verify_signature(HOME_EDITOR_PIN, payload, seen=_home_seen_sigs):
+        STATS["rejected"] += 1
+        logger.warning("Richiesta Home rifiutata: firma mancante, errata, scaduta o gia' usata.")
+        notify("🚫 My Nails Home: richiesta di modifica RIFIUTATA (codice errato, scaduto o gia' usato). Nessuna modifica fatta.")
+        return True
+    wp = he.WP(os.environ["WC_SITE_URL"], WP_USERNAME_HOME, WP_APP_PASSWORD_HOME)
+    try:
+        with _home_lock:
+            if action == "restore":
+                r = he.restore_previous(wp, HOME_BACKUP_DIR)
+                STATS["published"] += 1
+                record_event({"action": "home ripristinata"})
+                notify(f"↩️ My Nails Home: ripristinata la versione precedente ({r['restored_from']}).\nOra: {r['after'].get('title')} | {r['after'].get('button')}")
+                return True
+            image_bytes = base64.b64decode(data["image_base64"]) if data.get("image_base64") else None
+            r = he.publish_hero(wp, HOME_BACKUP_DIR, data, image_bytes)
+    except he.HeroError as e:
+        STATS["rejected"] += 1
+        logger.warning(f"Home: richiesta non eseguita: {e}")
+        notify(f"⚠️ My Nails Home: modifica NON eseguita — {e}\nIl sito e' rimasto com'era.")
+        return True
+    except requests.RequestException as e:
+        STATS["errors"] += 1
+        logger.exception("Home: errore di rete/WordPress")
+        notify(f"⚠️ My Nails Home: errore temporaneo ({e}) — ritento automaticamente.")
+        return False
+
+    if not r["changed"]:
+        notify("ℹ️ My Nails Home: nessuna differenza rispetto a quanto gia' pubblicato, non ho cambiato nulla.")
+        return True
+    STATS["published"] += 1
+    record_event({"action": "home aggiornata", "revision": r.get("revision")})
+    b, a = r["before"], r["after"]
+    notify(
+        "✅ My Nails Home AGGIORNATA da Miriam\n"
+        f"PRIMA: {b.get('title')} | {b.get('button')}\nDOPO:  {a.get('title')} | {a.get('button')}\n"
+        f"Foto: {'NUOVA ' + r['image_url'] if r.get('image_url') else 'invariata'}\n"
+        f"Controllo pagina pubblica: {'OK' if r.get('public_ok') else 'DA VERIFICARE'}\n"
+        f"Revisione WordPress: {r.get('revision')}\nBackup: {Path(r['backup']).name}\n"
+        "Per tornare indietro: pulsante «Torna alla versione di prima» nella pagina di Miriam."
+    )
+    return True
+
+
 def github_headers():
     return {
         "Authorization": f"token {GITHUB_TOKEN}",
@@ -340,6 +401,19 @@ def github_queue_polling_loop():
                     file_resp.raise_for_status()
                     content = base64.b64decode(file_resp.json()["content"])
                     payload = json.loads(content)
+
+                    if payload.get("home_hero") is not None:
+                        success = process_home_hero(payload)
+                        if success:
+                            delete_queue_file(f["path"], f["sha"])
+                            _clear_queue_failure(f["name"])
+                        else:
+                            attempts = _register_queue_failure(f["name"])
+                            if attempts >= QUEUE_MAX_ATTEMPTS:
+                                notify(f"❌ My Nails Home: modifica fallita {attempts} volte, rinuncio. Controlla il sito e riprova.")
+                                delete_queue_file(f["path"], f["sha"])
+                                _clear_queue_failure(f["name"])
+                        continue
 
                     category = payload.get("category")
                     product_id = str(payload.get("product_id"))

@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Modifica la tua Home</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F7F1EB;--ink:#1A1A1A;--rose:#B4897C;--line:#E0D4C8;--card:#fff;--ok:#2e7d4f;--err:#b3362b}
+@media(prefers-color-scheme:dark){:root{--bg:#1d1a18;--ink:#f1e9e2;--line:#43392f;--card:#27221f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Jost',system-ui,sans-serif;font-size:18px;line-height:1.45}
+.wrap{max-width:760px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:28px;margin:8px 0 4px}
+.lead{margin:0 0 20px;opacity:.8}
+.step{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:16px 0}
+.step h2{margin:0 0 12px;font-size:20px}
+.step h2 span{display:inline-block;background:var(--rose);color:#fff;border-radius:50%;width:30px;height:30px;line-height:30px;text-align:center;margin-right:8px;font-size:17px}
+label{display:block;font-weight:500;margin:12px 0 4px}
+.hint{font-weight:300;font-size:15px;opacity:.7}
+input[type=text],select{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+.row{display:grid;grid-template-columns:1fr 90px;gap:10px}
+.btn{font:inherit;font-weight:600;border:0;border-radius:12px;padding:16px 22px;cursor:pointer;background:var(--ink);color:var(--bg);width:100%}
+.btn.alt{background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:500;margin-top:10px}
+.btn[disabled]{opacity:.5;cursor:wait}
+.photo{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.photo img{width:150px;height:84px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.msg{margin:14px 0;padding:14px;border-radius:10px;display:none;font-weight:500}
+.msg.ok{display:block;background:rgba(46,125,79,.12);color:var(--ok)}
+.msg.err{display:block;background:rgba(179,54,43,.12);color:var(--err)}
+.msg.wait{display:block;background:rgba(180,137,124,.15)}
+/* ---- anteprima: stesse regole della Home vera ---- */
+.pv{--mnp-cream:#F3EAE2;--mnp-rose:#B4897C;--mnp-ink:#1A1A1A;border-radius:10px;overflow:hidden;border:1px solid var(--line);color:#1A1A1A}
+.pv .mnp-hero{position:relative;padding:38px 6%;min-height:300px;display:flex;align-items:center;background-color:var(--mnp-cream);
+ background-image:linear-gradient(90deg,rgba(243,234,226,.95) 0%,rgba(243,234,226,.78) 30%,rgba(243,234,226,.20) 50%,rgba(243,234,226,0) 64%),var(--img);background-size:cover,cover;background-position:center,right center}
+.pv .mnp-hero__text{max-width:58%}
+.pv .mnp-kicker{font-size:9px;letter-spacing:.2em;text-transform:uppercase;line-height:1.9;margin:0 0 12px}
+.pv .mnp-title{font-weight:700;line-height:.92;margin:0 0 12px;font-size:clamp(26px,7vw,46px)}
+.pv .mnp-title .n{font-family:'Playfair Display',Georgia,serif;font-weight:400;font-size:1.12em}
+.pv .mnp-title .rose{color:var(--mnp-rose)}
+.pv .mnp-sub{font-size:9px;letter-spacing:.2em;text-transform:uppercase;line-height:1.8;margin:0 0 14px}
+.pv .mnp-btn{display:inline-block;background:#1A1A1A;color:#fff;padding:9px 18px;font-size:9px;letter-spacing:.22em;text-transform:uppercase}
+.pv .mnp-btn .arw{margin-left:8px}
+.pv p{margin:0 0 12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Modifica la tua Home</h1>
+  <p class="lead">Cambia i testi e la foto in alto. Guarda l'anteprima, poi premi <b>Pubblica</b>. Se non ti piace, c'è il tasto per tornare indietro.</p>
+
+  <div class="step"><h2><span>1</span>Anteprima</h2>
+    <div class="pv" id="pv"></div>
+  </div>
+
+  <div class="step"><h2><span>2</span>Scrivi i testi</h2>
+    <label>Parola piccola in alto (grassetto) <span class="hint">es. Ottobre</span></label>
+    <input type="text" id="kicker_bold" maxlength="30">
+    <label>Riga piccola 1</label><input type="text" id="kicker_1" maxlength="40">
+    <label>Riga piccola 2</label><input type="text" id="kicker_2" maxlength="40">
+    <label>Titolone, prima riga <span class="hint">e il numero accanto, se serve</span></label>
+    <div class="row"><input type="text" id="title_1" maxlength="14"><input type="text" id="num_1" maxlength="3" placeholder="N."></div>
+    <label>Titolone, seconda riga (rosa) <span class="hint">puoi lasciarla vuota</span></label>
+    <div class="row"><input type="text" id="title_2" maxlength="14"><input type="text" id="num_2" maxlength="3" placeholder="N."></div>
+    <label>Frase sotto il titolo, riga 1</label><input type="text" id="sub_1" maxlength="34">
+    <label>Frase sotto il titolo, riga 2</label><input type="text" id="sub_2" maxlength="34">
+    <label>Scritta del bottone nero</label><input type="text" id="btn_text" maxlength="24">
+    <label>Dove porta il bottone?</label>
+    <select id="target">
+      <option value="shop">Tutto il negozio</option><option value="gel">Gel costruttori</option>
+      <option value="color">Gel color</option><option value="base">Base e Top</option>
+      <option value="accessori">Accessori</option><option value="starter">Starter Kit</option><option value="blog">Blog</option>
+    </select>
+  </div>
+
+  <div class="step"><h2><span>3</span>Cambia la foto <span class="hint" style="background:none;color:inherit;width:auto">(se vuoi)</span></h2>
+    <div class="photo"><img id="photoThumb" alt="">
+      <div><input type="file" id="photo" accept="image/jpeg,image/png,image/webp" hidden>
+      <button class="btn alt" style="margin:0" id="pickPhoto" type="button">Scegli una foto</button>
+      <div class="hint" id="photoName">Si usa quella di adesso.</div></div></div>
+    <p class="hint">Meglio una foto orizzontale (larga), con le cose importanti a destra: i testi stanno a sinistra.</p>
+  </div>
+
+  <div class="step"><h2><span>4</span>Pubblica</h2>
+    <div id="codeBox"><label>Codice segreto <span class="hint">te lo ha dato Marco, si scrive una volta sola</span></label>
+    <input type="text" id="pin" autocomplete="off" autocapitalize="off"></div>
+    <div class="msg" id="msg"></div>
+    <button class="btn" id="publish" type="button">Pubblica sul sito</button>
+    <button class="btn alt" id="restore" type="button">Torna alla versione di prima</button>
+    <p class="hint">Prima di ogni modifica il sito si salva da solo una copia. Non rischi di rovinare niente.</p>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+const SITE = "https://mynailsprofessional.it";
+const PAGE_API = SITE + "/wp-json/wp/v2/pages/362?_fields=content.rendered";
+const DEFAULTS = {kicker_bold:"Settembre",kicker_1:"è il momento perfetto",kicker_2:"per rinnovare il tuo kit",title_1:"PRENDI",num_1:"3",title_2:"PAGHI",num_2:"2",sub_1:"Scegli i tuoi prodotti",sub_2:"preferiti",btn_text:"Scopri ora",target:"shop"};
+const IMG_DEFAULT = SITE + "/wp-content/uploads/2026/09/hero-prendi3-paghi2.jpg";
+const TARGET_PATHS = {shop:"/shop/",gel:"/categoria-prodotto/gel-unghie/",color:"/categoria-prodotto/color-gel/",base:"/categoria-prodotto/basi-finish/",accessori:"/categoria-prodotto/attrezzi-utensili/",starter:"/categoria-prodotto/starter-kit/",blog:"/blog/"};
+const FIELDS = Object.keys(DEFAULTS);
+const $ = id => document.getElementById(id);
+let photoDataUrl = null, currentImg = IMG_DEFAULT;
+
+const esc = s => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const val = k => $(k).value.replace(/\s+/g," ").trim();
+
+function renderPreview(){
+  const f = Object.fromEntries(FIELDS.map(k => [k, val(k)]));
+  const kicker = [f.kicker_bold ? `<b>${esc(f.kicker_bold)}</b>` : "", esc(f.kicker_1), esc(f.kicker_2)].filter(Boolean).join("<br>");
+  const line = (w,n) => esc(w.toUpperCase()) + (n ? ` <span class="n">${esc(n)}</span>` : "");
+  let title = line(f.title_1, f.num_1);
+  if (f.title_2) title += `<br><span class="rose">${line(f.title_2, f.num_2)}</span>`;
+  const sub = [esc(f.sub_1), esc(f.sub_2)].filter(Boolean).join("<br>");
+  $("pv").innerHTML = `<div class="mnp-hero" style="--img:url('${photoDataUrl || currentImg}')"><div class="mnp-hero__text">
+    ${kicker ? `<p class="mnp-kicker">${kicker}</p>` : ""}<div class="mnp-title">${title}</div>
+    ${sub ? `<p class="mnp-sub">${sub}</p>` : ""}<span class="mnp-btn">${esc(f.btn_text)} <span class="arw">&#8594;</span></span></div></div>`;
+}
+
+function fill(v){ FIELDS.forEach(k => $(k).value = v[k] ?? ""); renderPreview(); }
+
+// legge i valori ATTUALI dalla Home vera, cosi' il modulo parte da quello che si vede sul sito
+async function loadCurrent(){
+  fill(DEFAULTS); $("photoThumb").src = IMG_DEFAULT;
+  try{
+    const r = await fetch(PAGE_API, {cache:"no-store"}); const j = await r.json();
+    return parseHero(j.content.rendered);
+  }catch(e){ return null; }
+}
+function parseHero(htmlStr){
+  const d = new DOMParser().parseFromString(htmlStr, "text/html");
+  const hero = d.querySelector(".mnp-hero"); if(!hero) return null;
+  const txt = h => { const t = document.createElement("textarea"); t.innerHTML = h.replace(/<[^>]+>/g,""); return t.value.trim(); };
+  const lines = el => el ? el.innerHTML.split(/<br\s*\/?>/i) : [];
+  const out = {...DEFAULTS};
+  const k = lines(hero.querySelector(".mnp-kicker"));
+  out.kicker_bold = txt(k[0]||""); out.kicker_1 = txt(k[1]||""); out.kicker_2 = txt(k[2]||"");
+  const t = lines(hero.querySelector(".mnp-title"));
+  [[1,t[0]],[2,t[1]]].forEach(([i,h]) => { h = h||""; const n = (h.match(/<span class="n">(.*?)<\/span>/)||[])[1]||""; out["num_"+i] = txt(n); out["title_"+i] = txt(h.replace(/<span class="n">.*?<\/span>/,"")); });
+  const s = lines(hero.querySelector(".mnp-sub")); out.sub_1 = txt(s[0]||""); out.sub_2 = txt(s[1]||"");
+  const b = hero.querySelector(".mnp-btn"); if(b){ out.btn_text = txt(b.innerHTML.replace(/<span class="arw">.*?<\/span>/,"")); const p = (b.getAttribute("href")||"").replace(SITE,""); out.target = Object.keys(TARGET_PATHS).find(x => TARGET_PATHS[x]===p) || "shop"; }
+  const m = htmlStr.match(/\/\*MNP:IMG\*\/url\('([^']+)'\)/); out._img = m ? m[1] : IMG_DEFAULT;
+  return out;
+}
+
+function resizeToJpeg(file, maxW=1920, q=.85){
+  return new Promise((res, rej) => { const fr = new FileReader(); fr.onerror = rej;
+    fr.onload = () => { const im = new Image(); im.onerror = rej;
+      im.onload = () => { const sc = Math.min(1, maxW/im.width); const c = document.createElement("canvas");
+        c.width = Math.round(im.width*sc); c.height = Math.round(im.height*sc);
+        c.getContext("2d").drawImage(im,0,0,c.width,c.height); res({url:c.toDataURL("image/jpeg",q), w:im.width}); };
+      im.src = fr.result; }; fr.readAsDataURL(file); });
+}
+async function hmacHex(key, message){
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), {name:"HMAC",hash:"SHA-256"}, false, ["sign"]);
+  const s = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(message));
+  return [...new Uint8Array(s)].map(b => b.toString(16).padStart(2,"0")).join("");
+}
+function sortedJson(o){ return JSON.stringify(Object.fromEntries(Object.keys(o).sort().map(k => [k,o[k]]))); }
+
+function say(kind, text){ const m = $("msg"); m.className = "msg " + kind; m.textContent = text; }
+
+async function send(home_hero){
+  const payload = {category:"home", product_id:"hero", status:"custom", home_hero};
+  const pin = $("pin").value.trim();
+  if (pin){
+    const signed = Object.fromEntries(Object.entries(home_hero).filter(([k]) => k!=="image_base64" && k!=="image_mime"));
+    payload.ts = Math.floor(Date.now()/1000);
+    payload.sig = await hmacHex(pin, payload.ts + "|" + sortedJson(signed));
+    try{ localStorage.setItem("mnp_pin", pin); }catch(e){}
+  }
+  for (let i=0;i<3;i++){
+    try{ const r = await fetch(WORKER_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); if(r.ok) return true; }catch(e){}
+    await new Promise(r => setTimeout(r, 2000*(i+1)));
+  }
+  return false;
+}
+
+// dopo l'invio guarda la Home vera finche' non mostra le modifiche (max 3 minuti)
+async function waitForChange(expect){
+  const t0 = Date.now();
+  while (Date.now()-t0 < 180000){
+    await new Promise(r => setTimeout(r, 8000));
+    const cur = await loadQuiet(); if (cur && expect(cur)) return true;
+  }
+  return false;
+}
+async function loadQuiet(){ try{ const r = await fetch(PAGE_API+"&t="+Date.now(),{cache:"no-store"}); return parseHero((await r.json()).content.rendered); }catch(e){ return null; } }
+
+$("pickPhoto").onclick = () => $("photo").click();
+$("photo").onchange = async e => { const f = e.target.files[0]; if(!f) return;
+  try{ const r = await resizeToJpeg(f); if (r.w < 900){ say("err","Questa foto è troppo piccola. Scegline una più grande (almeno 900 px di larghezza)."); return; }
+    photoDataUrl = r.url; $("photoThumb").src = r.url; $("photoName").textContent = f.name; say("", ""); $("msg").className="msg"; renderPreview();
+  }catch(err){ say("err","Non riesco ad aprire questa foto. Prova con un'altra."); } };
+FIELDS.forEach(k => $(k).addEventListener("input", renderPreview));
+
+$("publish").onclick = async () => {
+  if (!val("title_1") || !val("btn_text")){ say("err","Il titolone e la scritta del bottone non possono essere vuoti."); return; }
+  const hero = Object.fromEntries(FIELDS.map(k => [k, val(k)])); hero.action = "publish";
+  if (photoDataUrl){ hero.image_base64 = photoDataUrl.split(",")[1]; hero.image_mime = "image/jpeg"; }
+  const b = $("publish"), r = $("restore"); b.disabled = r.disabled = true; say("wait","Sto inviando… non chiudere la pagina.");
+  if (!(await send(hero))){ say("err","Non sono riuscito a inviare. Controlla internet e riprova."); b.disabled = r.disabled = false; return; }
+  say("wait","Inviato! Sto aspettando che il sito si aggiorni (anche un paio di minuti)…");
+  const want = {t1: hero.title_1.toUpperCase(), btn: hero.btn_text, k: hero.kicker_bold};
+  const ok = await waitForChange(c => c.title_1.toUpperCase()===want.t1 && c.btn_text===want.btn && c.kicker_bold===want.k && (!photoDataUrl || c._img !== currentImg));
+  if (ok){ say("ok","✅ Fatto! La tua Home è aggiornata."); photoDataUrl=null; currentImg=(await loadQuiet())._img; }
+  else say("wait","Richiesta inviata, ma non vedo ancora la modifica sul sito. Riprova a guardare tra qualche minuto; se non cambia, avvisa Marco.");
+  b.disabled = r.disabled = false;
+};
+$("restore").onclick = async () => {
+  if (!confirm("Vuoi tornare alla versione di prima dell'ultima modifica?")) return;
+  const b = $("publish"), r = $("restore"); b.disabled = r.disabled = true; say("wait","Sto inviando la richiesta…");
+  const ok = await send({action:"restore"}); b.disabled = r.disabled = false;
+  say(ok ? "ok" : "err", ok ? "Richiesta inviata. Tra circa un minuto la Home torna com'era (ti avvisa anche Marco)." : "Non sono riuscito a inviare. Riprova.");
+};
+
+(async () => {
+  try{ const p = localStorage.getItem("mnp_pin"); if(p) $("pin").value = p; }catch(e){}
+  const cur = await loadCurrent();
+  if (cur){ currentImg = cur._img; fill(cur); $("photoThumb").src = currentImg; }
+})();
+</script>
+</body>
+</html>
