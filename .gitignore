@@ -5,3 +5,5 @@ logs/
 *.pyc
 __pycache__/
 venv/
+
+home_editor_backups/
