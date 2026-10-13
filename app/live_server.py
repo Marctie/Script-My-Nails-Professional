@@ -304,6 +304,81 @@ def process_home_hero(payload: dict) -> bool:
     return True
 
 
+# --- Editor del sito (pagine, articoli, prodotti: testi, foto, prezzi) -------
+# Richieste con chiave "site_edit" nel JSON di coda. Logica in site_editor.py.
+# Qui il codice segreto (HOME_EDITOR_PIN) e' OBBLIGATORIO: senza, ogni richiesta e' rifiutata.
+SITE_BACKUP_DIR = ROOT / "site_editor_backups"
+
+
+def refresh_catalog_async() -> None:
+    """Rigenera docs/data/catalogo.json (prezzi e galleria dei prodotti, letti dalla pagina di Miriam) e lo scrive su
+    GitHub solo se e' cambiato. In un thread a parte: un errore qui non deve mai bloccare le modifiche al sito."""
+    def _run():
+        try:
+            import catalogo
+            cat = catalogo.build_catalog(os.environ["WC_SITE_URL"])
+            if catalogo.push_catalog(cat, GITHUB_REPO, GITHUB_BRANCH, github_headers()):
+                logger.info(f"Catalogo prodotti aggiornato su GitHub ({cat['count']} prodotti).")
+        except Exception:
+            logger.exception("Aggiornamento del catalogo prodotti non riuscito (ritento alla prossima modifica)")
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def process_site_edit(payload: dict) -> bool:
+    """True = richiesta chiusa (ok o rifiutata); False = errore temporaneo, da ritentare."""
+    import site_editor as se
+
+    STATS["requests"] += 1
+    data = payload.get("site_edit") or {}
+    if not HOME_EDITOR_PIN:
+        STATS["rejected"] += 1
+        notify("🚫 My Nails Sito: richiesta rifiutata, manca HOME_EDITOR_PIN nel .env del telefono. Nessuna modifica fatta.")
+        return True
+    if not se.verify_signature(HOME_EDITOR_PIN, payload, key="site_edit", seen=_home_seen_sigs):
+        STATS["rejected"] += 1
+        logger.warning("Richiesta Sito rifiutata: firma mancante, errata, scaduta o gia' usata.")
+        notify("🚫 My Nails Sito: richiesta di modifica RIFIUTATA (codice errato, scaduto o gia' usato). Nessuna modifica fatta.")
+        return True
+    wp = se.WP(os.environ["WC_SITE_URL"], WP_USERNAME_HOME, WP_APP_PASSWORD_HOME)
+    try:
+        with _home_lock:
+            if data.get("action") == "restore":
+                r = se.restore_previous(wp, SITE_BACKUP_DIR, data.get("kind"), data.get("id"))
+                STATS["published"] += 1
+                record_event({"action": f"sito ripristinato {r['kind']} {r['id']}"})
+                if r["kind"] == "product":
+                    refresh_catalog_async()
+                notify(f"↩️ My Nails Sito: ripristinata la versione precedente di «{r.get('title')}» ({r['kind']} {r['id']}).")
+                return True
+            r = se.publish_edit(wp, SITE_BACKUP_DIR, data, allow_prices=True)
+    except se.EditError as e:
+        STATS["rejected"] += 1
+        logger.warning(f"Sito: richiesta non eseguita: {e}")
+        notify(f"⚠️ My Nails Sito: modifica NON eseguita — {e}\nIl sito e' rimasto com'era.")
+        return True
+    except requests.RequestException as e:
+        STATS["errors"] += 1
+        logger.exception("Sito: errore di rete/WordPress")
+        notify(f"⚠️ My Nails Sito: errore temporaneo ({e}) — ritento automaticamente.")
+        return False
+
+    if not r["changed"]:
+        notify("ℹ️ My Nails Sito: nessuna differenza rispetto a quanto gia' pubblicato, non ho cambiato nulla.")
+        return True
+    STATS["published"] += 1
+    record_event({"action": f"sito aggiornato {r['kind']} {r['id']}"})
+    if r["kind"] == "product":
+        refresh_catalog_async()
+    lines = "\n".join("• " + x for x in r["summary"][:15])
+    notify(
+        f"✅ My Nails SITO AGGIORNATO da Miriam: «{r.get('title')}» ({r['kind']} {r['id']})\n{lines}\n"
+        f"Controllo pagina pubblica: {'OK' if r.get('public_ok') else 'DA VERIFICARE'}\n{r.get('link')}\n"
+        f"Backup: {Path(r['backup']).name}\n"
+        "Per tornare indietro: pulsante «Torna alla versione di prima» nella pagina di Miriam."
+    )
+    return True
+
+
 def github_headers():
     return {
         "Authorization": f"token {GITHUB_TOKEN}",
@@ -402,6 +477,19 @@ def github_queue_polling_loop():
                     content = base64.b64decode(file_resp.json()["content"])
                     payload = json.loads(content)
 
+                    if payload.get("site_edit") is not None:
+                        success = process_site_edit(payload)
+                        if success:
+                            delete_queue_file(f["path"], f["sha"])
+                            _clear_queue_failure(f["name"])
+                        else:
+                            attempts = _register_queue_failure(f["name"])
+                            if attempts >= QUEUE_MAX_ATTEMPTS:
+                                notify(f"❌ My Nails Sito: modifica fallita {attempts} volte, rinuncio. Controlla il sito e riprova.")
+                                delete_queue_file(f["path"], f["sha"])
+                                _clear_queue_failure(f["name"])
+                        continue
+
                     if payload.get("home_hero") is not None:
                         success = process_home_hero(payload)
                         if success:
@@ -481,6 +569,7 @@ if __name__ == "__main__":
     logger.info(f"Avvio live_server (PID {os.getpid()}), polling coda GitHub + dashboard locale su porta 5001")
     notify("✅ My Nails: server di pubblicazione avviato e in ascolto (coda GitHub, nessun tunnel).")
     threading.Thread(target=github_queue_polling_loop, daemon=True).start()
+    refresh_catalog_async()   # catalogo prodotti per la pagina di Miriam (prezzi, galleria)
     try:
         app.run(host="127.0.0.1", port=5001, debug=False)
     finally:

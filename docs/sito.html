@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Modifica il tuo sito</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F7F1EB;--ink:#1A1A1A;--rose:#B4897C;--line:#E0D4C8;--card:#fff;--ok:#2e7d4f;--err:#b3362b;--chg:#e9c46a}
+@media(prefers-color-scheme:dark){:root{--bg:#1d1a18;--ink:#f1e9e2;--line:#43392f;--card:#27221f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Jost',system-ui,sans-serif;font-size:18px;line-height:1.45}
+.wrap{max-width:860px;margin:0 auto;padding:20px 16px 70px}
+h1{font-size:28px;margin:8px 0 4px}
+.lead{margin:0 0 18px;opacity:.8}
+.hint{font-weight:300;font-size:15px;opacity:.7}
+.step{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:16px 0}
+.step h2{margin:0 0 12px;font-size:20px}
+label{display:block;font-weight:500;margin:14px 0 4px}
+input[type=text],input[type=password],input[type=search],textarea{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+textarea{resize:vertical;min-height:52px}
+.btn{font:inherit;font-weight:600;border:0;border-radius:12px;padding:15px 22px;cursor:pointer;background:var(--ink);color:var(--bg);width:100%}
+.btn.alt{background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:500;margin-top:10px}
+.btn.small{width:auto;padding:9px 14px;font-size:16px}
+.btn[disabled]{opacity:.5;cursor:wait}
+.tabs{display:flex;gap:8px;margin:0 0 12px}
+.tab{flex:1;font:inherit;font-weight:500;padding:12px 6px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink);cursor:pointer}
+.tab.on{background:var(--ink);color:var(--bg)}
+.item{display:flex;gap:12px;align-items:center;width:100%;text-align:left;font:inherit;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0;cursor:pointer}
+.item img{width:54px;height:54px;object-fit:cover;border-radius:8px;flex:none;background:var(--line)}
+.item b{display:block;font-weight:500}
+.item span{font-size:14px;opacity:.65}
+.special{border-color:var(--rose);border-width:2px}
+.msg{margin:14px 0;padding:14px;border-radius:10px;display:none;font-weight:500}
+.msg.ok{display:block;background:rgba(46,125,79,.12);color:var(--ok)}
+.msg.err{display:block;background:rgba(179,54,43,.12);color:var(--err)}
+.msg.wait{display:block;background:rgba(180,137,124,.15)}
+.back{background:none;border:0;font:inherit;color:var(--ink);opacity:.7;cursor:pointer;padding:4px 0;margin-bottom:6px}
+.slot{border-left:4px solid transparent;padding-left:10px;margin:14px 0}
+.slot.chg{border-left-color:var(--chg)}
+.slot .lbl{font-size:14px;opacity:.65;display:flex;justify-content:space-between;gap:8px}
+.slot .undo{background:none;border:0;color:var(--rose);font:inherit;font-size:14px;cursor:pointer;display:none;padding:0}
+.slot.chg .undo{display:inline}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.ph{border:1px solid var(--line);border-radius:12px;padding:8px;background:var(--bg)}
+.ph.chg{border-color:var(--chg);border-width:2px}
+.ph img{width:100%;height:110px;object-fit:cover;border-radius:8px;display:block;margin-bottom:8px}
+.ph .btn{padding:9px 6px;font-size:15px;margin:0}
+.ph .hint{display:block;margin:0 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pricebox{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.warn{color:var(--err);font-weight:500}
+.pvbar{display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap}
+.pvbar .tab{flex:none;padding:8px 14px}
+#pvframe{border:1px solid var(--line);border-radius:10px;background:#fff;height:560px;display:block;margin:0 auto;width:100%;max-width:100%}
+.sum{list-style:none;padding:0;margin:0}
+.sum li{padding:10px 0;border-bottom:1px solid var(--line)}
+.sum .a{opacity:.6;text-decoration:line-through}
+.sum .b{font-weight:600}
+.sum img{width:96px;height:72px;object-fit:cover;border-radius:6px;vertical-align:middle;margin-right:6px}
+.note{background:rgba(180,137,124,.12);border-radius:10px;padding:12px;font-size:16px;margin:12px 0}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ======================= 1. SCEGLI ======================= -->
+<section id="vList">
+  <h1>Modifica il tuo sito</h1>
+  <p class="lead">Scegli cosa vuoi cambiare. Vedrai sempre un'<b>anteprima</b> prima di pubblicare.</p>
+  <a class="item special" href="home.html" style="text-decoration:none"><div><b>La parte in alto della Home</b><span>Foto grande e scritte sopra (Prendi 3 paghi 2…)</span></div></a>
+  <div class="tabs" role="tablist">
+    <button class="tab on" data-kind="page" type="button">Pagine</button>
+    <button class="tab" data-kind="post" type="button">Articoli</button>
+    <button class="tab" data-kind="product" type="button">Prodotti</button>
+  </div>
+  <input type="search" id="q" placeholder="Cerca per nome…" class="hide">
+  <div id="list"></div>
+  <button class="btn alt hide" id="more" type="button">Mostra altri</button>
+  <div class="msg" id="listMsg"></div>
+</section>
+
+<!-- ======================= 2. MODIFICA ======================= -->
+<section id="vEdit" class="hide">
+  <button class="back" id="backList" type="button">← Torna all'elenco</button>
+  <h1 id="eTitle">…</h1>
+  <p class="lead" id="eSub"></p>
+  <div class="msg" id="eMsg"></div>
+
+  <div class="step"><h2>Anteprima</h2>
+    <div class="pvbar">
+      <button class="tab on" data-w="100%" type="button">Computer</button>
+      <button class="tab" data-w="390px" type="button">Telefono</button>
+      <span class="hint">Si aggiorna mentre scrivi. Sul sito vero l'aspetto può variare di poco.</span>
+    </div>
+    <iframe id="pvframe" sandbox="" title="Anteprima"></iframe>
+  </div>
+
+  <div class="step" id="boxTitle"><h2>Titolo</h2><div id="titleField"></div></div>
+  <div class="step hide" id="boxPrice"><h2>Prezzo</h2>
+    <div class="pricebox">
+      <div><label for="pReg">Prezzo normale (€)</label><input type="text" id="pReg" inputmode="decimal" autocomplete="off"></div>
+      <div><label for="pSale">Prezzo in offerta (€)</label><input type="text" id="pSale" inputmode="decimal" autocomplete="off" placeholder="vuoto = nessuna offerta"></div>
+    </div>
+    <div id="priceWarn" class="warn"></div>
+    <label id="ackRow" class="hide"><input type="checkbox" id="ack"> Sì, il nuovo prezzo è giusto</label>
+    <p class="hint" id="priceNote"></p>
+  </div>
+  <div class="step hide" id="boxTexts"><h2>Testi</h2><div class="note" id="texNote"></div><div id="texts"></div></div>
+  <div class="step hide" id="boxPhotos"><h2>Foto</h2><p class="hint">Premi «Cambia foto» sotto quella che vuoi sostituire. Meglio foto larghe, almeno 300 px.</p><div class="photos" id="photos"></div></div>
+
+  <div class="step">
+    <button class="btn" id="toReview" type="button">Controlla e conferma</button>
+    <button class="btn alt" id="restoreBtn" type="button">Torna alla versione di prima di questa pagina</button>
+    <p class="hint">Non si pubblica niente finché non confermi al passo dopo. E prima di ogni modifica il sito si salva da solo una copia.</p>
+  </div>
+</section>
+
+<!-- ======================= 3. CONFERMA ======================= -->
+<section id="vReview" class="hide">
+  <button class="back" id="backEdit" type="button">← Torna a modificare</button>
+  <h1>Controlla e conferma</h1>
+  <p class="lead">Ecco cosa cambierà sul sito vero.</p>
+  <div class="step"><h2>Cosa cambia</h2><ul class="sum" id="sum"></ul></div>
+  <div class="step"><h2>Anteprima finale</h2><div id="finalPv"></div></div>
+  <div class="step"><h2>Pubblica</h2>
+    <label for="pin">Codice segreto <span class="hint">te lo ha dato Marco, si scrive una volta sola</span></label>
+    <input type="password" id="pin" autocomplete="off" autocapitalize="off">
+    <div class="msg" id="rMsg"></div>
+    <button class="btn" id="publish" type="button" style="margin-top:14px">Conferma e pubblica sul sito</button>
+    <button class="btn alt" id="cancelRev" type="button">No, torno a modificare</button>
+    <button class="btn hide" id="doneBtn" type="button">Torna all'elenco</button>
+  </div>
+</section>
+
+</div>
+
+<script src="config.js"></script>
+<script>
+const SITE = "https://mynailsprofessional.it";
+const API = SITE + "/wp-json";
+const EXCLUDE = new Set([362, 27, 28, 29, 30, 1992, 2, 392, 1924]);   // Home (ha il suo editor), negozio, carrello, cassa, account, blog, esempi, Black Friday (generata)
+const THEME_CSS = [SITE + "/wp-content/themes/botiga/style.css", SITE + "/wp-includes/css/dist/block-library/style.min.css"];
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const norm = s => String(s).replace(/ /g," ").replace(/[‘’′]/g,"'").replace(/[“”″„]/g,'"').replace(/[–—]/g,"-").replace(/…/g,"...").replace(/×/g,"x").replace(/\s+/g," ").trim();
+const decode = h => { const t = document.createElement("textarea"); t.innerHTML = h; return t.value; };
+const plain = h => norm(decode(String(h).replace(/<[^>]+>/g," ")));
+const fmtEUR = n => (n === "" || n == null) ? "—" : Number(n).toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2}) + " €";
+
+let kind = "page", page = 1, pages = 1, query = "", cur = null;
+
+function show(v){ ["vList","vEdit","vReview"].forEach(x => $(x).classList.toggle("hide", x !== v)); window.scrollTo(0,0); }
+function say(id, k, t){ const m = $(id); m.className = "msg " + k; m.textContent = t; if(!k) m.className = "msg"; }
+const getJSON = async (url) => { const r = await fetch(url + (url.includes("?")?"&":"?") + "t=" + Date.now(), {cache:"no-store"}); if(!r.ok) throw new Error(r.status); return {j: await r.json(), r}; };
+
+// ------------------------------------------------------------------ elenco
+async function loadList(reset){
+  if (reset){ page = 1; $("list").innerHTML = ""; }
+  say("listMsg","","");
+  $("q").classList.toggle("hide", kind === "page");
+  try{
+    let items = [];
+    if (kind === "page"){
+      const {j} = await getJSON(`${API}/wp/v2/pages?per_page=100&orderby=title&order=asc&_fields=id,title,modified`);
+      items = j.filter(p => !EXCLUDE.has(p.id)).map(p => ({id:p.id, name:plain(p.title.rendered), sub:"Pagina"}));
+      pages = 1;
+    } else if (kind === "post"){
+      const {j,r} = await getJSON(`${API}/wp/v2/posts?per_page=20&page=${page}&search=${encodeURIComponent(query)}&_fields=id,title,date`);
+      pages = +r.headers.get("X-WP-TotalPages") || 1;
+      items = j.map(p => ({id:p.id, name:plain(p.title.rendered), sub:"Articolo del " + new Date(p.date).toLocaleDateString("it-IT")}));
+    } else {
+      const cat = await getCatalog();
+      const q = query.toLowerCase();
+      const all = cat.products.filter(p => !q || p.name.toLowerCase().includes(q) || (p.cats||[]).join(" ").toLowerCase().includes(q));
+      pages = Math.max(1, Math.ceil(all.length / 20));
+      items = all.slice((page-1)*20, page*20).map(p => ({id:p.id, name:p.name, sub:(p.sale ? fmtEUR(p.sale) + " (offerta)" : fmtEUR(p.reg)) + (p.type !== "simple" ? " · con varianti" : ""), img:(p.imgs[0]||{}).thumb}));
+    }
+    items.forEach(it => {
+      const b = document.createElement("button"); b.type = "button"; b.className = "item";
+      b.innerHTML = (it.img ? `<img src="${esc(it.img)}" alt="" loading="lazy">` : "") + `<div><b>${esc(it.name)}</b><span>${esc(it.sub)}</span></div>`;
+      b.onclick = () => openItem(it.id);
+      $("list").appendChild(b);
+    });
+    if (!items.length && page === 1) say("listMsg","wait","Non trovo niente.");
+    $("more").classList.toggle("hide", page >= pages);
+  }catch(e){ say("listMsg","err","Non riesco a leggere l'elenco dal sito. Riprova tra poco."); }
+}
+// catalogo prodotti (prezzi, tipo, galleria): file generato e aggiornato dal telefono, vedi catalogo.py
+let catalogCache = null;
+async function getCatalog(){
+  if (catalogCache) return catalogCache;
+  const {j} = await getJSON("data/catalogo.json"); catalogCache = j; return j;
+}
+
+document.querySelectorAll("#vList .tab").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#vList .tab").forEach(x => x.classList.toggle("on", x === b));
+  kind = b.dataset.kind; query = ""; $("q").value = ""; loadList(true);
+});
+let qt; $("q").oninput = () => { clearTimeout(qt); qt = setTimeout(() => { query = $("q").value.trim(); loadList(true); }, 350); };
+$("more").onclick = () => { page++; loadList(false); };
+
+// ------------------------------------------------------------------ lettura di un contenuto
+const SKIP_TAGS = new Set(["SCRIPT","STYLE","NOSCRIPT","SVG","TEXTAREA","SELECT","OPTION"]);
+const GENERATED = "form, .wpforms-container, .woocommerce, [class*='wc-block'], ul.products, .wp-block-woocommerce-product-collection";
+
+function labelFor(node){
+  const el = node.parentElement;
+  if (el.closest("h1,h2,h3,h4,h5,h6")) return "Titolo";
+  if (el.closest("button,.wp-block-button,.mnp-btn")) return "Bottone";
+  if (el.closest("figcaption")) return "Didascalia";
+  if (el.closest("li")) return "Elenco";
+  if (el.closest("td,th")) return "Tabella";
+  if (el.closest("a")) return "Link";
+  if (el.closest("p")) return "Paragrafo";
+  return "Testo";
+}
+
+function parseHtmlField(field, htmlStr){
+  const doc = new DOMParser().parseFromString(`<div id="r">${htmlStr || ""}</div>`, "text/html");
+  const root = doc.getElementById("r");
+  const slots = [], w = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let n; while ((n = w.nextNode())){
+    const t = norm(n.nodeValue); if (!t) continue;
+    let p = n.parentElement, skip = false;
+    while (p && p !== root){ if (SKIP_TAGS.has(p.tagName.toUpperCase())) { skip = true; break; } p = p.parentElement; }
+    if (skip || n.parentElement.closest(GENERATED)) continue;
+    slots.push({field, node:n, old:t, label:labelFor(n)});
+  }
+  const seen = {}, cnt = {};
+  slots.forEach(s => cnt[s.old] = (cnt[s.old]||0) + 1);
+  slots.forEach(s => { s.n = seen[s.old] = (seen[s.old] ?? -1) + 1; s.count = cnt[s.old]; });
+  // foto: <img> (anche con caricamento ritardato) e sfondi CSS dentro uno style=""
+  const imgs = [], seenU = new Set();
+  const add = (u, el, how) => { if (!u || u.startsWith("data:") || seenU.has(u)) return; seenU.add(u); imgs.push({field, url:u, els:[], how}); };
+  root.querySelectorAll("img").forEach(im => {
+    if (im.closest(GENERATED)) return;
+    const u = im.getAttribute("data-lazy-src") || im.getAttribute("data-src") || im.getAttribute("src");
+    if (u && !u.startsWith("data:") && (u.includes("/wp-content/uploads/"))) { add(u, im, "img"); }
+  });
+  (htmlStr.match(/url\(["']?[^"')]*\/wp-content\/uploads\/[^"')]+/g) || []).forEach(m => add(m.replace(/^url\(["']?/,"").replace(/&quot;.*$/,""), null, "css"));
+  return {field, doc, root, slots, imgs};
+}
+
+async function openItem(id){
+  show("vEdit"); $("eTitle").textContent = "Carico…"; $("eSub").textContent = ""; say("eMsg","",""); resetEditor();
+  try{
+    if (kind === "product"){
+      let c = null; try{ c = (await getCatalog()).products.find(x => x.id === id) || null; }catch(e){}
+      const {j} = await getJSON(`${API}/wp/v2/product/${id}?_fields=id,title,modified,link,content,excerpt`);
+      cur = {kind, id, title:plain(j.title.rendered), link:j.link, modified:j.modified, type:c ? c.type : "unknown",
+             prices:c ? {reg:c.reg, sale:c.sale} : {reg:"", sale:""},
+             fields:[parseHtmlField("short_description", j.excerpt.rendered), parseHtmlField("description", j.content.rendered)],
+             gallery:c ? c.imgs.map(i => ({url:i.src, thumb:i.thumb})) : []};
+    } else {
+      const ep = kind === "page" ? "pages" : "posts";
+      const {j} = await getJSON(`${API}/wp/v2/${ep}/${id}?_embed=wp:featuredmedia&_fields=id,title,modified,link,content,_embedded`);
+      const fm = ((j._embedded||{})["wp:featuredmedia"]||[])[0];
+      cur = {kind, id, title:plain(j.title.rendered), link:j.link, modified:j.modified,
+             fields:[parseHtmlField("content", j.content.rendered)], featured: kind === "post" ? (fm && fm.source_url || "") : null};
+    }
+    cur.photos = []; cur.fields.forEach(f => f.imgs.forEach(i => cur.photos.push({field:i.field, old:i.url, thumb:i.url, new:null, newName:""})));
+    if (kind === "product") cur.gallery.forEach(g => cur.photos.push({field:"gallery", old:g.url, thumb:g.thumb, new:null, newName:""}));
+    if (kind === "post") cur.photos.push({field:"featured", old:cur.featured || "", thumb:cur.featured || "", new:null, newName:"", isFeatured:true});
+    cur.titleNew = cur.title;
+    buildEditor();
+  }catch(e){ say("eMsg","err","Non riesco a leggere questo contenuto dal sito. Riprova."); }
+}
+
+// ------------------------------------------------------------------ editor
+function resetEditor(){ ["titleField","texts","photos"].forEach(i => $(i).innerHTML = ""); $("boxPrice").classList.add("hide"); $("pvframe").srcdoc = ""; }
+
+function mkField(el, val, onInput, multi){
+  const inp = document.createElement(multi ? "textarea" : "input"); if (!multi) inp.type = "text";
+  inp.value = val; inp.addEventListener("input", () => onInput(inp.value)); el.appendChild(inp); return inp;
+}
+
+function buildEditor(){
+  const kl = {page:"Pagina", post:"Articolo", product:"Prodotto"}[cur.kind];
+  $("eTitle").textContent = cur.title; $("eSub").textContent = kl + " — " + cur.link.replace(SITE, "");
+  // titolo
+  const tf = $("titleField");
+  const tin = mkField(tf, cur.title, v => { cur.titleNew = v; refresh(); }, false); tin.maxLength = 200; cur.titleInput = tin;
+  // prezzo
+  if (cur.kind === "product"){
+    $("boxPrice").classList.remove("hide");
+    $("pReg").value = cur.prices.reg ? cur.prices.reg.replace(".", ",") : ""; $("pSale").value = cur.prices.sale ? cur.prices.sale.replace(".", ",") : "";
+    const variable = cur.type !== "simple";
+    $("pReg").disabled = $("pSale").disabled = variable;
+    $("priceNote").textContent = cur.type === "unknown" ? "In questo momento non riesco a leggere il prezzo: i testi si possono cambiare, il prezzo no."
+      : variable ? "Questo prodotto ha varianti con prezzi diversi: i prezzi non si cambiano da qui." : "Scrivi il prezzo con la virgola, per esempio 14,99.";
+    $("ack").checked = false; checkPrice();
+  }
+  // testi
+  const all = cur.fields.flatMap(f => f.slots);
+  const names = {short_description:"Descrizione breve", description:"Descrizione", content:""};
+  $("boxTexts").classList.toggle("hide", false);
+  $("texNote").textContent = all.length ? "Cambia i testi che vuoi: quelli modificati si segnano in giallo. Non si possono lasciare vuoti." : "Da qui non si può cambiare nessun testo: i contenuti di questa pagina sono generati dal sito (moduli, elenchi di prodotti…).";
+  let lastField = null;
+  all.forEach(s => {
+    if (s.field !== lastField && names[s.field]){ const h = document.createElement("h3"); h.textContent = names[s.field]; h.style.margin = "18px 0 0"; $("texts").appendChild(h); }
+    lastField = s.field;
+    const box = document.createElement("div"); box.className = "slot";
+    const top = document.createElement("div"); top.className = "lbl"; top.innerHTML = `<span>${esc(s.label)}</span>`;
+    const undo = document.createElement("button"); undo.type = "button"; undo.className = "undo"; undo.textContent = "annulla"; top.appendChild(undo); box.appendChild(top);
+    s.cur = s.old;
+    const inp = mkField(box, s.old, v => { s.cur = v; box.classList.toggle("chg", norm(v) !== s.old); refresh(); }, s.old.length > 70);
+    undo.onclick = () => { inp.value = s.old; s.cur = s.old; box.classList.remove("chg"); refresh(); };
+    $("texts").appendChild(box);
+  });
+  // foto
+  $("boxPhotos").classList.toggle("hide", !cur.photos.length);
+  cur.photos.forEach(p => {
+    const d = document.createElement("div"); d.className = "ph";
+    const label = p.isFeatured ? "Foto in evidenza dell'articolo" : p.field === "gallery" ? "Foto del prodotto" : "Foto nella pagina";
+    d.innerHTML = `<span class="hint">${esc(label)}</span>${p.thumb ? `<img alt="" src="${esc(p.thumb)}">` : `<div style="height:110px;display:grid;place-items:center;opacity:.5">nessuna foto</div>`}`;
+    const file = document.createElement("input"); file.type = "file"; file.accept = "image/jpeg,image/png,image/webp"; file.hidden = true;
+    const b = document.createElement("button"); b.type = "button"; b.className = "btn alt"; b.textContent = "Cambia foto";
+    b.onclick = () => file.click();
+    file.onchange = async () => { const f = file.files[0]; if (!f) return;
+      try{ const r = await resizeToJpeg(f); if (r.w < 300){ say("eMsg","err","Questa foto è troppo piccola (almeno 300 px di larghezza)."); return; }
+        say("eMsg","","");  p.new = r.url; p.newName = f.name; d.classList.add("chg"); const im = d.querySelector("img"); if (im) im.src = r.url; else d.insertAdjacentHTML("beforeend",`<img alt="" src="${r.url}">`); refresh();
+      }catch(e){ say("eMsg","err","Non riesco ad aprire questa foto. Prova con un'altra."); } };
+    d.appendChild(b); d.appendChild(file); $("photos").appendChild(d);
+  });
+  refresh();
+}
+
+function resizeToJpeg(file, maxW=1600, q=.85){
+  return new Promise((res, rej) => { const fr = new FileReader(); fr.onerror = rej;
+    fr.onload = () => { const im = new Image(); im.onerror = rej;
+      im.onload = () => { const sc = Math.min(1, maxW/im.width); const c = document.createElement("canvas");
+        c.width = Math.round(im.width*sc); c.height = Math.round(im.height*sc);
+        c.getContext("2d").drawImage(im,0,0,c.width,c.height); res({url:c.toDataURL("image/jpeg",q), w:im.width}); };
+      im.src = fr.result; }; fr.readAsDataURL(file); });
+}
+
+// ------------------------------------------------------------------ prezzi
+const PRICE_RE = /^\d{1,4}([.,]\d{1,2})?$/;
+function priceVal(s){ s = s.trim(); return s === "" ? "" : s.replace(",", "."); }
+function priceState(){
+  const reg = priceVal($("pReg").value), sale = priceVal($("pSale").value), errs = [];
+  if (!PRICE_RE.test($("pReg").value.trim()) || Number(reg) <= 0) errs.push("Il prezzo normale non è valido (esempio: 14,99).");
+  if (sale !== "" && (!PRICE_RE.test($("pSale").value.trim()) || Number(sale) <= 0)) errs.push("Il prezzo in offerta non è valido.");
+  if (!errs.length && sale !== "" && Number(sale) >= Number(reg)) errs.push("Il prezzo in offerta deve essere più basso di quello normale.");
+  const oldReg = cur.prices.reg, jump = !errs.length && oldReg && Math.abs(Number(reg) - Number(oldReg)) / Number(oldReg) > 0.5;
+  const changed = !errs.length && (Number(reg) !== Number(oldReg || 0) || (sale === "" ? "" : Number(sale).toFixed(2)) !== (cur.prices.sale ? Number(cur.prices.sale).toFixed(2) : ""));
+  return {reg, sale, errs, jump, changed};
+}
+function checkPrice(){
+  if (cur.type !== "simple") return {errs:[], changed:false};
+  const st = priceState();
+  $("priceWarn").textContent = st.errs.join(" ") || (st.jump ? "Attenzione: il prezzo cambia di più del 50%. Controlla bene." : "");
+  $("ackRow").classList.toggle("hide", !st.jump);
+  return st;
+}
+["pReg","pSale"].forEach(i => $(i).addEventListener("input", () => { $("ack").checked = false; checkPrice(); refresh(); }));
+
+// ------------------------------------------------------------------ anteprima
+let rt; function refresh(){ clearTimeout(rt); rt = setTimeout(renderPreview, 200); }
+function previewHTML(){
+  // si lavora su copie, cosi' l'originale resta intatto per l'annulla
+  const fh = {}; cur.fields.forEach(f => {     const clone = f.root.cloneNode(true);
+    const ws = document.createTreeWalker(f.root, NodeFilter.SHOW_TEXT), wc = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT);
+    const mapOld = new Map(); let a, b; while ((a = ws.nextNode()) && (b = wc.nextNode())) mapOld.set(a, b);
+    f.slots.forEach(s => { const c = mapOld.get(s.node); if (c) c.nodeValue = s.cur.trim() ? s.cur : s.old; });
+    clone.querySelectorAll("img").forEach(im => { const u = im.getAttribute("data-lazy-src") || im.getAttribute("data-src") || im.getAttribute("src");
+      if (u && !u.startsWith("data:")) im.setAttribute("src", u);
+      ["srcset","sizes","loading","data-lazy-src","data-src"].forEach(a => im.removeAttribute(a)); });
+    let h = clone.innerHTML;
+    cur.photos.filter(p => p.field === f.field && p.new).forEach(p => { h = h.split(p.old).join(p.new); });
+    fh[f.field] = h; });
+  const title = esc(cur.titleNew.trim() || cur.title);
+  const imgOf = (field, i) => { const p = cur.photos.filter(x => x.field === field)[i]; return p ? (p.new || p.old) : ""; };
+  let body;
+  if (cur.kind === "product"){
+    const st = cur.type === "simple" ? priceState() : null;
+    const reg = st && !st.errs.length ? st.reg : cur.prices.reg, sale = st && !st.errs.length ? st.sale : cur.prices.sale;
+    const price = sale ? `<s style="opacity:.55">${fmtEUR(reg)}</s> <b>${fmtEUR(sale)}</b>` : `<b>${fmtEUR(reg)}</b>`;
+    const gal = cur.photos.filter(p => p.field === "gallery").map(p => p.new || p.old);
+    body = `<div class="pvp"><div class="pvg">${gal[0] ? `<img src="${esc(gal[0])}" alt="">` : ""}<div class="th">${gal.slice(1).map(u => `<img src="${esc(u)}" alt="">`).join("")}</div></div>
+      <div class="pvi"><h1>${title}</h1><div class="pr">${price}</div><div class="sd">${fh.short_description || ""}</div></div></div><div class="ds">${fh.description || ""}</div>`;
+  } else {
+    const feat = cur.kind === "post" ? imgOf("featured", 0) : "";
+    body = `<article class="pva"><h1>${title}</h1>${feat ? `<img class="ft" src="${esc(feat)}" alt="">` : ""}<div class="entry-content">${fh.content || ""}</div></article>`;
+  }
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><base href="${SITE}/">
+    ${THEME_CSS.map(u => `<link rel="stylesheet" href="${u}">`).join("")}
+    <style>body{margin:0;padding:18px;font-family:system-ui,sans-serif;background:#fff;color:#1a1a1a;line-height:1.55}img{max-width:100%;height:auto}
+    h1{font-size:28px;margin:0 0 12px}.pvp{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:20px}.pvg{flex:1 1 240px}.pvg>img{width:100%;border-radius:6px}.th{display:flex;gap:6px;margin-top:6px}.th img{width:64px;height:64px;object-fit:cover}
+    .pvi{flex:1 1 260px}.pr{font-size:22px;margin:6px 0 12px}.ft{border-radius:6px;margin:0 0 14px}</style></head><body>${body}</body></html>`;
+}
+function renderPreview(){ if (!cur) return; $("pvframe").srcdoc = previewHTML(); }
+document.querySelectorAll(".pvbar .tab").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".pvbar .tab").forEach(x => x.classList.toggle("on", x === b)); $("pvframe").style.width = b.dataset.w; });
+
+// ------------------------------------------------------------------ riepilogo e invio
+function collect(){
+  const req = {kind:cur.kind, id:cur.id}, changes = [], errs = [];
+  if (cur.modified) req.expect_modified = cur.modified;
+  const t = cur.titleNew.trim();
+  if (!t) errs.push("Il titolo non può essere vuoto.");
+  else if (norm(t) !== norm(cur.title)){ req.title = {old:cur.title, new:t}; changes.push({t:"Titolo", a:cur.title, b:t}); }
+  req.texts = [];
+  cur.fields.forEach(f => f.slots.forEach(s => {
+    const v = s.cur.trim();
+    if (!v){ errs.push(`Un testo è vuoto: «${s.old.slice(0,40)}». Scrivi qualcosa o premi «annulla».`); return; }
+    if (norm(v) === s.old) return;
+    req.texts.push({field:s.field, old:s.old, new:v, n:s.n, count:s.count});
+    changes.push({t:s.label, a:s.old, b:v});
+  }));
+  req.images = [];
+  cur.photos.filter(p => p.new).forEach(p => {
+    req.images.push({field:p.field, old:p.old, image_base64:p.new.split(",")[1], image_mime:"image/jpeg"});
+    changes.push({t:"Foto", a:p.thumb, b:p.new, photo:true});
+  });
+  if (cur.kind === "product" && cur.type === "simple"){
+    const st = checkPrice();
+    if (st.errs.length) errs.push(...st.errs);
+    else if (st.changed){
+      if (st.jump && !$("ack").checked) errs.push("Hai cambiato il prezzo di più del 50%: spunta «Sì, il nuovo prezzo è giusto» per continuare.");
+      req.prices = {regular_price:st.reg, sale_price:st.sale, price_ack:!!$("ack").checked, seen_regular:cur.prices.reg, seen_sale:cur.prices.sale};
+      if (Number(st.reg) !== Number(cur.prices.reg || 0)) changes.push({t:"Prezzo", a:fmtEUR(cur.prices.reg), b:fmtEUR(st.reg), danger:st.jump});
+      if ((st.sale||"") !== (cur.prices.sale||"")) changes.push({t:"Prezzo in offerta", a:fmtEUR(cur.prices.sale), b:fmtEUR(st.sale)});
+    }
+  }
+  if (!req.texts.length) delete req.texts; if (!req.images.length) delete req.images;
+  const mb = req.images ? req.images.reduce((n,i) => n + i.image_base64.length, 0) : 0;
+  if (mb > 4.5e6) errs.push("Le foto sono troppo pesanti tutte insieme: cambiane meno per volta.");
+  if ((req.images||[]).length > 10) errs.push("Troppe foto in una volta sola.");
+  return {req, changes, errs};
+}
+
+$("toReview").onclick = () => {
+  const {req, changes, errs} = collect();
+  if (errs.length){ say("eMsg","err",errs[0]); return; }
+  if (!changes.length){ say("eMsg","wait","Non hai cambiato niente."); return; }
+  say("eMsg","","");
+  const ul = $("sum"); ul.innerHTML = "";
+  changes.forEach(c => { const li = document.createElement("li");
+    li.innerHTML = c.photo ? `<b>${esc(c.t)}</b><br><img src="${esc(c.a)}" alt=""> → <img src="${esc(c.b)}" alt="">`
+      : `<b>${esc(c.t)}</b><br><span class="a">${esc(c.a)}</span><br><span class="b ${c.danger ? "warn" : ""}">${esc(c.b)}</span>${c.danger ? ' <span class="warn">(cambio superiore al 50%)</span>' : ""}`;
+    ul.appendChild(li); });
+  const f = document.createElement("iframe"); f.id = "pvframe2"; f.setAttribute("sandbox",""); f.style.cssText = "width:100%;height:480px;border:1px solid var(--line);border-radius:10px;background:#fff";
+  f.srcdoc = previewHTML(); $("finalPv").innerHTML = ""; $("finalPv").appendChild(f);
+  window.pending = req; openConfirm("publish");
+};
+$("backEdit").onclick = $("cancelRev").onclick = () => show("vEdit");
+$("backList").onclick = () => { cur = null; show("vList"); };
+
+// <FIRMA>
+function canon(v){
+  if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
+  if (v && typeof v === "object") return "{" + Object.keys(v).sort().filter(k => v[k] !== undefined).map(k => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}";
+  return JSON.stringify(v);
+}
+function signable(req){
+  const o = Object.assign({}, req);
+  if (o.images) o.images = o.images.map(i => { const c = Object.assign({}, i); delete c.image_base64; delete c.image_mime; return c; });
+  return o;
+}
+async function hmacHex(key, message){
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), {name:"HMAC",hash:"SHA-256"}, false, ["sign"]);
+  const s = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(message));
+  return [...new Uint8Array(s)].map(b => b.toString(16).padStart(2,"0")).join("");
+}
+async function buildPayload(pin, req){
+  const ts = Math.floor(Date.now()/1000);
+  return {category:"home", product_id:"site", status:"custom", site_edit:req, ts, sig: await hmacHex(pin, ts + "|" + canon(signable(req)))};
+}
+// </FIRMA>
+
+async function send(req, msgId){
+  const pin = $("pin").value.trim();
+  if (!pin){ say(msgId,"err","Scrivi il codice segreto."); return false; }
+  try{ localStorage.setItem("mnp_pin", pin); }catch(e){}
+  const payload = await buildPayload(pin, req);
+  for (let i = 0; i < 3; i++){
+    try{ const r = await fetch(WORKER_URL, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)}); if (r.ok) return true; }catch(e){}
+    await new Promise(r => setTimeout(r, 2000*(i+1)));
+  }
+  say(msgId,"err","Non sono riuscito a inviare. Controlla internet e riprova."); return false;
+}
+
+// controlla sul sito vero se la modifica e' arrivata (max 3 minuti)
+// Quando il telefono salva, WordPress aggiorna la data di modifica del contenuto: e' il segnale piu' semplice e sicuro
+// (funziona anche per i soli prezzi, che dal browser non si possono rileggere).
+async function fetchFresh(kind, id){
+  const ep = {page:"pages", post:"posts", product:"product"}[kind];
+  const {j} = await getJSON(`${API}/wp/v2/${ep}/${id}?_fields=modified`);
+  return j.modified;
+}
+async function waitFor(check){
+  const t0 = Date.now();
+  while (Date.now() - t0 < 180000){ await new Promise(r => setTimeout(r, 8000)); try{ if (check(await fetchFresh(cur.kind, cur.id))) return true; }catch(e){} }
+  return false;
+}
+
+async function doPublish(){
+  const req = window.pending, b = $("publish"), c = $("cancelRev"); b.disabled = c.disabled = true;
+  say("rMsg","wait","Sto inviando… non chiudere la pagina.");
+  if (!(await send(req, "rMsg"))){ b.disabled = c.disabled = false; return; }
+  say("rMsg","wait","Inviato! Aspetto che il sito si aggiorni (anche un paio di minuti)…");
+  const before = cur.modified;
+  const ok = await waitFor(m => m !== before);
+  b.disabled = c.disabled = false;
+  if (ok){ say("rMsg","ok","✅ Fatto! Il sito è aggiornato."); b.classList.add("hide"); c.classList.add("hide"); $("doneBtn").classList.remove("hide"); }
+  else say("rMsg","wait","Richiesta inviata, ma non vedo ancora la modifica sul sito. Riprova a guardare tra qualche minuto; se non cambia, avvisa Marco (lui riceve il motivo su Telegram).");
+}
+$("doneBtn").onclick = () => { cur = null; show("vList"); };
+
+async function doRestore(){
+  const b = $("publish"); b.disabled = true; say("rMsg","wait","Sto inviando la richiesta…");
+  const ok = await send({action:"restore", kind:cur.kind, id:cur.id}, "rMsg"); b.disabled = false;
+  if (ok){ say("rMsg","ok","Richiesta inviata. Tra circa un minuto la pagina torna com'era (ti avvisa anche Marco)."); b.classList.add("hide"); $("cancelRev").classList.add("hide"); $("doneBtn").classList.remove("hide"); }
+}
+function openConfirm(mode){
+  $("publish").classList.remove("hide"); $("cancelRev").classList.remove("hide"); $("doneBtn").classList.add("hide"); say("rMsg","","");
+  $("publish").textContent = mode === "restore" ? "Conferma il ritorno indietro" : "Conferma e pubblica sul sito";
+  $("publish").onclick = mode === "restore" ? doRestore : doPublish;
+  try{ const p = localStorage.getItem("mnp_pin"); if (p) $("pin").value = p; }catch(e){}
+  show("vReview");
+}
+
+$("restoreBtn").onclick = () => {
+  if (!confirm("Vuoi tornare alla versione di prima dell'ultima modifica di QUESTA pagina?")) return;
+  $("sum").innerHTML = "<li>Questa pagina torna com'era prima dell'ultima modifica fatta da qui.</li>"; $("finalPv").innerHTML = "";
+  openConfirm("restore");
+};
+
+loadList(true);
+</script>
+</body>
+</html>
