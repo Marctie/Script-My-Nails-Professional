@@ -53,11 +53,24 @@
   }
 
   // ------------------------------------------------------------ rete
+  /* Il Worker Cloudflare inoltra al telefono SOLO category, product_id, status, image_base64 e image_mime (scarta ogni altro campo).
+     L'intera richiesta firmata viaggia quindi DENTRO image_base64 con un tipo speciale: il telefono la riapre (live_server.unwrap_tunnel).
+     La firma e' dentro la richiesta, quindi la sicurezza non cambia. */
+  const TUNNEL_MIME = "application/x-mnp+json";
+  function b64utf8(str) {
+    const bytes = new TextEncoder().encode(str); let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+  function wrap(payload) {
+    if (payload.image_mime === TUNNEL_MIME) return payload;
+    return {category: payload.category, product_id: payload.product_id, status: "custom", image_base64: b64utf8(JSON.stringify(payload)), image_mime: TUNNEL_MIME};
+  }
   async function post(payload) {
     if (typeof WORKER_URL === "undefined" || !WORKER_URL) return false;
     for (let i = 0; i < 3; i++) {
       try {
-        const r = await fetch(WORKER_URL, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+        const r = await fetch(WORKER_URL, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(wrap(payload))});
         if (r.ok) return true;
       } catch (e) {}
       await new Promise(r => setTimeout(r, 1500 * (i + 1)));
@@ -144,6 +157,6 @@
     refreshBar();
   }
 
-  window.MNP = {get, login, logout, guard, renderBar, countAction, buildPayload, post, sendEvent, touch,
+  window.MNP = {get, login, logout, guard, renderBar, countAction, buildPayload, post, sendEvent, touch, wrap, TUNNEL_MIME,
     MAX_ACTIONS, IDLE_S, users: CFG.users, _deriveKey: deriveKey, _verifier: verifierOf, _sign: signOf, _canon: canon};
 })();

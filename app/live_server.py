@@ -32,6 +32,7 @@ import base64
 import json
 import logging
 import os
+import re
 import threading
 import time
 from pathlib import Path
@@ -105,6 +106,7 @@ SESSIONS = editor_sessions.Sessions(
 )
 REQUIRE_LOGIN_FOTO = os.environ.get("REQUIRE_LOGIN_FOTO", "0") == "1"
 _users_cache: dict | None = None
+_queue_busy = threading.Event()        # attivo mentre si elabora la coda: il controllo di inattivita' aspetta
 _failed_login_last: dict = {}
 
 
@@ -145,7 +147,9 @@ def session_text(summ: dict, head: str) -> str:
 
 def authenticate(payload: dict, obj: dict, what: str):
     """Verifica la firma. Ritorna l'id utente oppure None (con avviso Telegram dettagliato)."""
-    uid = editor_sessions.verify(get_users(), payload, obj, seen=None)
+    # la firma vale 15 minuti rispetto a QUANDO LA RICHIESTA E' ENTRATA IN CODA (non a quando la elaboro): se il telefono e' spento per ore
+    # le richieste restano valide; un vecchio payload ripresentato dal Worker ha un orario di coda nuovo ma una firma vecchia, quindi si rifiuta
+    uid = editor_sessions.verify(get_users(), payload, obj, seen=None, now=payload.get("_queued_at"))
     if uid and str(payload.get("sig")) in _home_seen_sigs:      # gia' elaborata: replay
         uid = None
     if not uid:
@@ -163,9 +167,9 @@ def _mark_seen(payload: dict) -> None:
         _home_seen_sigs.add(str(payload["sig"]))
 
 
-def require_session(uid: str, what: str) -> bool:
-    if SESSIONS.active(uid):
-        SESSIONS.touch(uid)
+def require_session(uid: str, what: str, at=None) -> bool:
+    if SESSIONS.active(uid, at):
+        SESSIONS.touch(uid, at)
         return True
     STATS["rejected"] += 1
     notify(f"🚫 {user_name(uid)} ha provato a fare una modifica ({what}) SENZA una sessione attiva "
@@ -174,11 +178,11 @@ def require_session(uid: str, what: str) -> bool:
     return False
 
 
-def record_session_action(uid: str, text: str) -> str:
+def record_session_action(uid: str, text: str, at=None) -> str:
     """Registra la modifica nella sessione. Ritorna una riga 'Modifica n/N' e, se il limite e' raggiunto, avvisa della chiusura."""
-    if not SESSIONS.active(uid):
+    if not SESSIONS.active(uid, at):
         return "Modifica fuori sessione (non conteggiata)"
-    r = SESSIONS.record_action(uid, text)
+    r = SESSIONS.record_action(uid, text, at)
     if r["closed"]:
         notify(session_text(r["summary"], "🔒 LOGOUT AUTOMATICO (limite modifiche)"))
     return f"Modifica {r['count']} di {r['max']} della sessione"
@@ -215,13 +219,13 @@ def process_session_event(payload: dict) -> bool:
         return True
     name = user_name(uid)
     if typ == "login":
-        r = SESSIONS.login(uid, str(ev.get("device", "")))
+        r = SESSIONS.login(uid, str(ev.get("device", "")), payload.get("_queued_at"))
         if r["previous"]:
             notify(session_text(r["previous"], "🔁 SESSIONE PRECEDENTE CHIUSA (nuovo login)"))
         notify(f"🔓 LOGIN — {name} ha effettuato l'accesso\n🕒 {fmt_t(time.time())}\n📱 Dispositivo: {str(ev.get('device',''))[:120]}\n"
                f"La sessione si chiude dopo {SESSIONS.max_actions} modifiche o {SESSIONS.idle_s // 60} minuti di inattivita'.")
     elif typ == "logout":
-        summ = SESSIONS.logout(uid, str(ev.get("reason") or "uscita volontaria")[:80])
+        summ = SESSIONS.logout(uid, str(ev.get("reason") or "uscita volontaria")[:80], payload.get("_queued_at"))
         if summ:
             notify(session_text(summ, "🔒 LOGOUT"))
         else:
@@ -237,6 +241,8 @@ def session_sweeper_loop():
     while True:
         time.sleep(60)
         try:
+            if _queue_busy.is_set():
+                continue
             for summ in SESSIONS.sweep():
                 notify(session_text(summ, "⏳ SESSIONE SCADUTA (nessun logout)"))
         except Exception:
@@ -342,7 +348,7 @@ def publish_image(category: str, product_id: int, image_path: Path):
     return media_id
 
 
-def process_choice(category: str, product_id: str, status: str, image_bytes: bytes = None, image_mime: str = "", uid: str = "") -> bool:
+def process_choice(category: str, product_id: str, status: str, image_bytes: bytes = None, image_mime: str = "", uid: str = "", at=None) -> bool:
     """Ritorna True se la voce puo' essere considerata definita (pubblicata
     con successo, o registrata senza bisogno di pubblicare) e quindi rimossa
     dalla coda; False se la pubblicazione e' fallita e andrebbe ritentata
@@ -378,7 +384,7 @@ def process_choice(category: str, product_id: str, status: str, image_bytes: byt
             STATS["published"] += 1
             record_event({"category": category, "product_id": product_id, "action": "pubblicato (foto cliente)"})
             logger.info(f"[{category}] {product_id} pubblicato (foto cliente), media_id={media_id}")
-            counter = record_session_action(uid, f"foto prodotto «{product_name}» ({category})") if uid else ""
+            counter = record_session_action(uid, f"foto prodotto «{product_name}» ({category})", at) if uid else ""
             notify(
                 f"⬆️ My Nails: nuova foto caricata su WordPress (media_id={media_id}) e impostata come "
                 f"immagine di \"{product_name}\" ({category}) su mynailsprofessional.it. ✅ Pubblicato."
@@ -427,7 +433,7 @@ def process_home_hero(payload: dict) -> bool:
     if not uid:
         return True
     name = user_name(uid)
-    if not require_session(uid, "Home"):
+    if not require_session(uid, "Home", payload.get("_queued_at")):
         return True
     wanted = []
     if action == "restore":
@@ -445,7 +451,7 @@ def process_home_hero(payload: dict) -> bool:
                 r = he.restore_previous(wp, HOME_BACKUP_DIR)
                 STATS["published"] += 1
                 record_event({"action": "home ripristinata"})
-                counter = record_session_action(uid, "Home: ripristinata la versione precedente")
+                counter = record_session_action(uid, "Home: ripristinata la versione precedente", payload.get("_queued_at"))
                 notify(f"↩️ HOME RIPRISTINATA — 👤 {name}\nVersione ripristinata: {r['restored_from']}\n"
                        f"Ora: {r['after'].get('title')} | {r['after'].get('button')}\n🔢 {counter}")
                 _mark_seen(payload)
@@ -474,7 +480,7 @@ def process_home_hero(payload: dict) -> bool:
     changes = [f"• {lab}: «{b.get(k)}» → «{a.get(k)}»" for k, lab in
                (("kicker", "Riga piccola"), ("title", "Titolo"), ("sub", "Frase"), ("button", "Bottone"), ("href", "Link del bottone"), ("image", "Foto"))
                if b.get(k) != a.get(k)]
-    counter = record_session_action(uid, "Home: " + (", ".join(c.split(":")[0][2:] for c in changes) or "ritocchi"))
+    counter = record_session_action(uid, "Home: " + (", ".join(c.split(":")[0][2:] for c in changes) or "ritocchi"), payload.get("_queued_at"))
     notify(
         f"✅ HOME AGGIORNATA — 👤 {name}\n🕒 {fmt_t(time.time())}\n" + "\n".join(changes) + "\n"
         f"Foto: {'NUOVA ' + r['image_url'] if r.get('image_url') else 'invariata'}\n"
@@ -516,7 +522,7 @@ def process_site_edit(payload: dict) -> bool:
     if not uid:
         return True
     name = user_name(uid)
-    if not require_session(uid, "Sito"):
+    if not require_session(uid, "Sito", payload.get("_queued_at")):
         return True
     kind = data.get("kind")
     kl = {"page": "pagina", "post": "articolo", "product": "prodotto"}.get(kind, str(kind))
@@ -532,7 +538,7 @@ def process_site_edit(payload: dict) -> bool:
                 record_event({"action": f"sito ripristinato {r['kind']} {r['id']}"})
                 if r["kind"] == "product":
                     refresh_catalog_async()
-                counter = record_session_action(uid, f"ripristino {kl} «{r.get('title')}»")
+                counter = record_session_action(uid, f"ripristino {kl} «{r.get('title')}»", payload.get("_queued_at"))
                 notify(f"↩️ SITO RIPRISTINATO — 👤 {name}\n📄 {kl} «{r.get('title')}» (#{r['id']}) tornato alla versione precedente.\n🔢 {counter}")
                 _mark_seen(payload)
                 return True
@@ -559,7 +565,7 @@ def process_site_edit(payload: dict) -> bool:
         refresh_catalog_async()
     n_t = len(data.get("texts") or []) + (1 if data.get("title") else 0)
     n_i = len(data.get("images") or [])
-    counter = record_session_action(uid, f"{kl} «{r.get('title')}»: {n_t} testi, {n_i} foto" + (", prezzo" if data.get("prices") else ""))
+    counter = record_session_action(uid, f"{kl} «{r.get('title')}»: {n_t} testi, {n_i} foto" + (", prezzo" if data.get("prices") else ""), payload.get("_queued_at"))
     lines = "\n".join("• " + x for x in r["summary"][:40])
     notify(
         f"✅ SITO AGGIORNATO — 👤 {name}\n📄 {kl} «{r.get('title')}» (#{r['id']})\n🕒 {fmt_t(time.time())}\n{lines}\n"
@@ -631,6 +637,61 @@ def _clear_queue_failure(filename: str) -> None:
 # dal bot: nulla si perde, ma l'utente non lo sa finche' non gliel'lo diciamo
 # esplicitamente invece di lasciare che se ne accorga dalle notifiche singole
 # sparse). Si azzera automaticamente ad ogni riavvio del processo.
+# --- "Tunnel" dei dati dell'editor attraverso il Worker Cloudflare ------------
+# Il Worker inoltra in coda SOLO category, product_id, status, image_base64 e image_mime (tutti gli altri campi li scarta:
+# verificato dai file della coda su GitHub il 13/10/2026). Le pagine dell'editor mettono quindi l'INTERA richiesta firmata (JSON)
+# dentro image_base64 con image_mime = TUNNEL_MIME; qui la si riapre prima di smistarla. La firma e' dentro la richiesta: la sicurezza non cambia.
+TUNNEL_MIME = "application/x-mnp+json"
+EDITOR_CATEGORIES = {"session", "home"}      # categorie riservate all'editor: non sono mai prodotti
+
+
+def queue_epoch(name: str):
+    """Orario (secondi) in cui il Worker ha messo la richiesta in coda, ricavato dal nome del file (..._<millisecondi>.json)."""
+    m = re.search(r"_(\d{12,14})\.json$", name or "")
+    return int(m.group(1)) / 1000 if m else None
+
+
+def unwrap_tunnel(payload: dict):
+    """Ritorna (richiesta_vera, errore). Se non e' un tunnel ritorna (payload, None)."""
+    if payload.get("image_mime") != TUNNEL_MIME:
+        return payload, None
+    try:
+        inner = json.loads(base64.b64decode(payload["image_base64"]).decode("utf-8"))
+        if not isinstance(inner, dict):
+            raise ValueError("non e' un oggetto")
+        return inner, None
+    except Exception as e:
+        return payload, f"dati illeggibili ({str(e)[:60]})"
+
+
+class PollHealth:
+    """Tiene d'occhio i fallimenti di rete verso GitHub: pausa crescente fra i tentativi, UN solo avviso dopo ALERT_AFTER secondi di
+    fallimenti continui e UN messaggio quando la rete torna, invece di un avviso nel log ogni 10 secondi."""
+    ALERT_AFTER = 600
+
+    def __init__(self, base=10, cap=60, clock=time.time):
+        self.base, self.cap, self.clock = base, cap, clock
+        self.fails, self.since, self.alerted = 0, None, False
+
+    def failure(self):
+        """Ritorna (secondi_di_pausa, manda_avviso, scrivi_nel_log)."""
+        now = self.clock()
+        if self.since is None:
+            self.since = now
+        self.fails += 1
+        pause = min(self.cap, self.base * (2 ** min(self.fails - 1, 3)))      # 10, 20, 40, 60, 60...
+        alert = (not self.alerted) and now - self.since >= self.ALERT_AFTER
+        if alert:
+            self.alerted = True
+        return pause, alert, (self.fails <= 3 or self.fails % 20 == 0)
+
+    def success(self):
+        """Ritorna i minuti di interruzione se era stato mandato l'avviso 'giu'', altrimenti None."""
+        down = int((self.clock() - self.since) / 60) if (self.alerted and self.since is not None) else None
+        self.fails, self.since, self.alerted = 0, None, False
+        return down
+
+
 _startup_backlog_notified = False
 _startup_backlog_remaining = 0
 
@@ -641,9 +702,14 @@ def github_queue_polling_loop():
         logger.error("GITHUB_TOKEN non impostato in .env, polling della coda GitHub non avviato.")
         return
     logger.info("Polling della coda GitHub avviato per My Nails Live.")
+    health = PollHealth(base=GITHUB_POLL_SECONDS)
     while True:
+        pause = GITHUB_POLL_SECONDS
         try:
-            queue_files = list_queue_files()
+            queue_files = sorted(list_queue_files(), key=lambda q: (queue_epoch(q["name"]) or 0, q["name"]))
+            recovered = health.success()
+            if recovered is not None:
+                notify(f"✅ My Nails: la rete verso GitHub e' tornata dopo circa {recovered} minuti. Riprendo a leggere la coda: le richieste arrivate nel frattempo vengono elaborate ora.")
 
             if not _startup_backlog_notified:
                 _startup_backlog_notified = True
@@ -656,6 +722,8 @@ def github_queue_polling_loop():
                         f"Nessuna e' andata persa: le elaboro ora una alla volta."
                     )
 
+            if queue_files:
+                _queue_busy.set()
             for f in queue_files:
                 try:
                     # Usiamo l'API "git blobs" (non "contents") per leggere il file:
@@ -667,6 +735,23 @@ def github_queue_polling_loop():
                     file_resp.raise_for_status()
                     content = base64.b64decode(file_resp.json()["content"])
                     payload = json.loads(content)
+
+                    payload, tunnel_err = unwrap_tunnel(payload)
+                    if isinstance(payload, dict):
+                        payload["_queued_at"] = queue_epoch(f["name"])
+                    if tunnel_err:
+                        logger.warning(f"Voce di coda {f['name']}: {tunnel_err}")
+                        notify(f"⚠️ My Nails: una richiesta dell'editor non si e' potuta leggere ({tunnel_err}). Scartata: va rifatta dalla pagina.")
+                        delete_queue_file(f["path"], f["sha"])
+                        _clear_queue_failure(f["name"])
+                        continue
+                    if payload.get("category") in EDITOR_CATEGORIES and not any(payload.get(k) is not None for k in ("session_event", "home_hero", "site_edit")):
+                        logger.warning(f"Voce di coda {f['name']}: richiesta dell'editor priva dei dati utili (scartati dal Worker?), ignorata.")
+                        notify("⚠️ My Nails: e' arrivata una richiesta dell'editor SENZA i dati utili (il Worker li ha scartati). "
+                               "Ricarica la pagina con Ctrl+F5 e riprova; se persiste avvisa Marco. Nessuna modifica fatta.")
+                        delete_queue_file(f["path"], f["sha"])
+                        _clear_queue_failure(f["name"])
+                        continue
 
                     if payload.get("session_event") is not None:
                         # login / logout / tentativo fallito: sempre chiusi subito (nessun ritento)
@@ -727,14 +812,14 @@ def github_queue_polling_loop():
                         if payload.get("user") or REQUIRE_LOGIN_FOTO:
                             signed_obj = {"category": category, "product_id": payload.get("product_id"), "status": status}
                             photo_uid = authenticate(payload, signed_obj, "Foto prodotto") if payload.get("user") else None
-                            if not photo_uid or (REQUIRE_LOGIN_FOTO and not require_session(photo_uid, "Foto prodotto")):
+                            if not photo_uid or (REQUIRE_LOGIN_FOTO and not require_session(photo_uid, "Foto prodotto", payload.get("_queued_at"))):
                                 if not payload.get("user"):
                                     notify(f"🚫 Foto prodotto RIFIUTATA: serve il login.\n🕒 {fmt_t(time.time())}\nProdotto {product_id} ({category}).")
                                 _mark_seen(payload)
                                 delete_queue_file(f["path"], f["sha"])
                                 _clear_queue_failure(f["name"])
                                 continue
-                        success = process_choice(category, product_id, status, image_bytes, payload.get("image_mime", ""), photo_uid or "")
+                        success = process_choice(category, product_id, status, image_bytes, payload.get("image_mime", ""), photo_uid or "", payload.get("_queued_at"))
                         if success:
                             _mark_seen(payload)
                     else:
@@ -763,8 +848,15 @@ def github_queue_polling_loop():
                 except Exception:
                     logger.exception(f"Errore elaborando {f.get('name')}")
         except Exception as e:
-            logger.warning(f"Errore nel polling della coda GitHub, riprovo tra {GITHUB_POLL_SECONDS}s: {e}")
-        time.sleep(GITHUB_POLL_SECONDS)
+            pause, alert, verbose = health.failure()
+            if verbose:
+                logger.warning(f"Errore nel polling della coda GitHub (fallimento n. {health.fails}), riprovo tra {pause}s: {e}")
+            if alert:
+                notify("⚠️ My Nails: da oltre 10 minuti non riesco a contattare GitHub (rete o DNS del telefono: controlla Wi-Fi/VPN). "
+                       "Le richieste di Miriam restano in coda e verranno elaborate appena la rete torna.")
+        finally:
+            _queue_busy.clear()
+        time.sleep(pause)
 
 
 app = Flask(__name__)

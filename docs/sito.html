@@ -464,7 +464,7 @@ async function send(req, msgId){
   try{ payload = await MNP.buildPayload({category:"home", product_id:"site", status:"custom", site_edit:req}, req); }
   catch(e){ say(msgId,"err","La sessione e' scaduta: torna al menu e accedi di nuovo."); return false; }
   for (let i = 0; i < 3; i++){
-    try{ const r = await fetch(WORKER_URL, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)}); if (r.ok) return true; }catch(e){}
+    try{ const r = await fetch(WORKER_URL, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(MNP.wrap(payload))}); if (r.ok) return true; }catch(e){}
     await new Promise(r => setTimeout(r, 2000*(i+1)));
   }
   say(msgId,"err","Non sono riuscito a inviare. Controlla internet e riprova."); return false;
@@ -493,7 +493,7 @@ async function doPublish(){
   const ok = await waitFor(m => m !== before);
   b.disabled = c.disabled = false;
   if (ok){ say("rMsg","ok","✅ Fatto! Il sito è aggiornato."); b.classList.add("hide"); c.classList.add("hide"); $("doneBtn").classList.remove("hide"); await afterSuccess(); }
-  else say("rMsg","wait","Richiesta inviata, ma non vedo ancora la modifica sul sito. Riprova a guardare tra qualche minuto; se non cambia, avvisa Marco (lui riceve il motivo su Telegram).");
+  else say("rMsg","wait","La tua richiesta è stata inviata ed è al sicuro in coda, ma non vedo ancora la modifica sul sito. Se il sistema è spento per un momento, la modifica viene fatta da sola appena torna attivo: NON serve rifarla. Riguarda tra qualche minuto; se non cambia, avvisa Marco (lui riceve il motivo su Telegram).");
 }
 $("doneBtn").onclick = () => { cur = null; show("vList"); };
 

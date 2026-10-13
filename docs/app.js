@@ -147,7 +147,7 @@ async function submitToLiveServer(category, productId, status, customImage) {
       const res = await fetch(WORKER_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(body.sig && window.MNP ? MNP.wrap(body) : body),   // firmata -> dentro il "tunnel" (il Worker scarta i campi extra)
       });
       if (res.ok) {
         lastOutcome = "inviato (verra' pubblicato a breve)";
