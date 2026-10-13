@@ -404,7 +404,7 @@ def publish_edit(wp: WP, backup_dir: Path, req: dict, allow_prices: bool = False
                 html_new[f] = out
                 for t in mine:
                     if norm(t["new"]) != norm(t["old"]) or t["new"] != t["old"]:
-                        summary.append(f"testo: «{norm(t['old'])[:50]}» -> «{norm(t['new'])[:50]}»")
+                        summary.append(f"testo: «{norm(t['old'])[:300]}» -> «{norm(t['new'])[:300]}»")
     for t in texts:
         if t.get("field") not in HTML_FIELDS[kind]:
             raise EditError("Una modifica di testo riguarda un campo non ammesso.")

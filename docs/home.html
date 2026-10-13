@@ -85,8 +85,6 @@ input[type=text],select{width:100%;font:inherit;padding:12px;border:1px solid va
   </div>
 
   <div class="step"><h2><span>4</span>Pubblica</h2>
-    <div id="codeBox"><label>Codice segreto <span class="hint">te lo ha dato Marco, si scrive una volta sola</span></label>
-    <input type="text" id="pin" autocomplete="off" autocapitalize="off"></div>
     <div class="msg" id="msg"></div>
     <button class="btn" id="publish" type="button">Pubblica sul sito</button>
     <button class="btn alt" id="restore" type="button">Torna alla versione di prima</button>
@@ -95,6 +93,9 @@ input[type=text],select{width:100%;font:inherit;padding:12px;border:1px solid va
 </div>
 
 <script src="config.js"></script>
+<script src="utenti.js"></script>
+<script src="sessione.js"></script>
+<script>if (MNP.guard()) MNP.renderBar(document.querySelector(".wrap"));</script>
 <script>
 const SITE = "https://mynailsprofessional.it";
 const PAGE_API = SITE + "/wp-json/wp/v2/pages/362?_fields=content.rendered";
@@ -154,24 +155,19 @@ function resizeToJpeg(file, maxW=1920, q=.85){
         c.getContext("2d").drawImage(im,0,0,c.width,c.height); res({url:c.toDataURL("image/jpeg",q), w:im.width}); };
       im.src = fr.result; }; fr.readAsDataURL(file); });
 }
-async function hmacHex(key, message){
-  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), {name:"HMAC",hash:"SHA-256"}, false, ["sign"]);
-  const s = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(message));
-  return [...new Uint8Array(s)].map(b => b.toString(16).padStart(2,"0")).join("");
-}
-function sortedJson(o){ return JSON.stringify(Object.fromEntries(Object.keys(o).sort().map(k => [k,o[k]]))); }
-
 function say(kind, text){ const m = $("msg"); m.className = "msg " + kind; m.textContent = text; }
 
+
+async function afterSuccess(){
+  const r = await MNP.countAction();
+  if (r.closed){ alert("Hai fatto " + r.max + " modifiche: per sicurezza la sessione e' finita. Rifai l'accesso per continuare."); location.replace("index.html?msg=limite"); return true; }
+  return false;
+}
+
 async function send(home_hero){
-  const payload = {category:"home", product_id:"hero", status:"custom", home_hero};
-  const pin = $("pin").value.trim();
-  if (pin){
-    const signed = Object.fromEntries(Object.entries(home_hero).filter(([k]) => k!=="image_base64" && k!=="image_mime"));
-    payload.ts = Math.floor(Date.now()/1000);
-    payload.sig = await hmacHex(pin, payload.ts + "|" + sortedJson(signed));
-    try{ localStorage.setItem("mnp_pin", pin); }catch(e){}
-  }
+  let payload;
+  try{ payload = await MNP.buildPayload({category:"home", product_id:"hero", status:"custom", home_hero}, home_hero); }
+  catch(e){ say("err","La sessione e' scaduta: torna al menu e accedi di nuovo."); return false; }
   for (let i=0;i<3;i++){
     try{ const r = await fetch(WORKER_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); if(r.ok) return true; }catch(e){}
     await new Promise(r => setTimeout(r, 2000*(i+1)));
@@ -199,6 +195,7 @@ FIELDS.forEach(k => $(k).addEventListener("input", renderPreview));
 
 $("publish").onclick = async () => {
   if (!val("title_1") || !val("btn_text")){ say("err","Il titolone e la scritta del bottone non possono essere vuoti."); return; }
+  if (!confirm("Vuoi pubblicare queste modifiche sulla Home del sito?")) return;
   const hero = Object.fromEntries(FIELDS.map(k => [k, val(k)])); hero.action = "publish";
   if (photoDataUrl){ hero.image_base64 = photoDataUrl.split(",")[1]; hero.image_mime = "image/jpeg"; }
   const b = $("publish"), r = $("restore"); b.disabled = r.disabled = true; say("wait","Sto inviando… non chiudere la pagina.");
@@ -206,7 +203,7 @@ $("publish").onclick = async () => {
   say("wait","Inviato! Sto aspettando che il sito si aggiorni (anche un paio di minuti)…");
   const want = {t1: hero.title_1.toUpperCase(), btn: hero.btn_text, k: hero.kicker_bold};
   const ok = await waitForChange(c => c.title_1.toUpperCase()===want.t1 && c.btn_text===want.btn && c.kicker_bold===want.k && (!photoDataUrl || c._img !== currentImg));
-  if (ok){ say("ok","✅ Fatto! La tua Home è aggiornata."); photoDataUrl=null; currentImg=(await loadQuiet())._img; }
+  if (ok){ say("ok","✅ Fatto! La tua Home è aggiornata."); photoDataUrl=null; currentImg=(await loadQuiet())._img; b.disabled = r.disabled = false; await afterSuccess(); return; }
   else say("wait","Richiesta inviata, ma non vedo ancora la modifica sul sito. Riprova a guardare tra qualche minuto; se non cambia, avvisa Marco.");
   b.disabled = r.disabled = false;
 };
@@ -215,10 +212,10 @@ $("restore").onclick = async () => {
   const b = $("publish"), r = $("restore"); b.disabled = r.disabled = true; say("wait","Sto inviando la richiesta…");
   const ok = await send({action:"restore"}); b.disabled = r.disabled = false;
   say(ok ? "ok" : "err", ok ? "Richiesta inviata. Tra circa un minuto la Home torna com'era (ti avvisa anche Marco)." : "Non sono riuscito a inviare. Riprova.");
+  if (ok) await afterSuccess();
 };
 
 (async () => {
-  try{ const p = localStorage.getItem("mnp_pin"); if(p) $("pin").value = p; }catch(e){}
   const cur = await loadCurrent();
   if (cur){ currentImg = cur._img; fill(cur); $("photoThumb").src = currentImg; }
 })();

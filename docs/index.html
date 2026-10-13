@@ -3,30 +3,124 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Revisione foto prodotti - My Nails Professional</title>
-<link rel="stylesheet" href="styles.css">
+<meta name="robots" content="noindex,nofollow">
+<title>My Nails Professional - Gestione sito</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F7F1EB;--ink:#1A1A1A;--rose:#B4897C;--line:#E0D4C8;--card:#fff;--ok:#2e7d4f;--err:#b3362b}
+@media(prefers-color-scheme:dark){:root{--bg:#1d1a18;--ink:#f1e9e2;--line:#43392f;--card:#27221f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Jost',system-ui,sans-serif;font-size:18px;line-height:1.45}
+.wrap{max-width:760px;margin:0 auto;padding:28px 16px 70px}
+h1{font-size:30px;margin:6px 0 4px}
+.lead{margin:0 0 20px;opacity:.8}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:16px 0}
+label{display:block;font-weight:500;margin:14px 0 4px}
+select,input{width:100%;font:inherit;padding:13px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+.btn{font:inherit;font-weight:600;border:0;border-radius:12px;padding:15px 22px;cursor:pointer;background:var(--ink);color:var(--bg);width:100%;margin-top:16px}
+.btn[disabled]{opacity:.5;cursor:wait}
+.msg{margin:12px 0 0;padding:12px;border-radius:10px;display:none;font-weight:500}
+.msg.err{display:block;background:rgba(179,54,43,.12);color:var(--err)}
+.msg.info{display:block;background:rgba(180,137,124,.15)}
+.msg.ok{display:block;background:rgba(46,125,79,.12);color:var(--ok)}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:520px){.tiles{grid-template-columns:1fr}}
+.tile{display:block;text-decoration:none;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
+.tile:hover{border-color:var(--rose)}
+.tile b{display:block;font-size:20px;margin-bottom:4px}
+.tile span{font-size:15px;opacity:.7}
+.tile.wide{grid-column:1/-1;border-color:var(--rose);border-width:2px}
+.hint{font-weight:300;font-size:15px;opacity:.7}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.link{background:none;border:1px solid var(--line);border-radius:10px;padding:8px 14px;font:inherit;color:inherit;cursor:pointer}
+.hide{display:none!important}
+</style>
 </head>
 <body>
-  <header>
-    <h1>Revisione foto prodotti</h1>
-    <a class="guide-link" href="guida.html">Come si usa? (guida semplice)</a>
-  </header>
+<div class="wrap">
+  <h1>Gestione del sito</h1>
+  <p class="lead">My Nails Professional — qui cambi testi, foto e prezzi del sito.</p>
 
-  <div class="toolbar">
-    <div class="tabs" id="tabs"></div>
-    <div class="toolbar-actions">
-      <button id="exportBtn">Scarica risultati</button>
-      <label class="import-label">
-        Importa file precedente
-        <input type="file" id="importFile" accept="application/json">
-      </label>
+  <!-- ===== ACCESSO ===== -->
+  <section id="vLogin" class="card hide">
+    <h2 style="margin:0 0 4px;font-size:21px">Accedi</h2>
+    <p class="hint" style="margin:0">Scegli il tuo nome e scrivi il tuo codice personale.</p>
+    <label for="who">Chi sei?</label>
+    <select id="who"></select>
+    <label for="code">Codice personale</label>
+    <input type="password" id="code" autocomplete="current-password" autocapitalize="off" spellcheck="false">
+    <div class="msg" id="loginMsg"></div>
+    <button class="btn" id="loginBtn" type="button">Entra</button>
+    <p class="hint" style="margin-bottom:0">Quando entri, e quando esci, Marco riceve un avviso. Per sicurezza l'accesso si chiude da solo dopo 10 modifiche o dopo 30 minuti senza usare la pagina.</p>
+  </section>
+
+  <!-- ===== MENU ===== -->
+  <section id="vMenu" class="hide">
+    <div class="card row" style="margin-top:0">
+      <div><b id="hello">Ciao</b><br><span class="hint" id="count"></span></div>
+      <button class="link" id="logoutBtn" type="button">Esci</button>
     </div>
-  </div>
+    <div class="msg" id="menuMsg"></div>
+    <h2 style="font-size:20px;margin:22px 0 10px">Cosa vuoi fare?</h2>
+    <div class="tiles">
+      <a class="tile wide" href="home.html"><b>Cambia la Home</b><span>La parte in alto: foto grande e scritte (Prendi 3 paghi 2…)</span></a>
+      <a class="tile" href="sito.html#page"><b>Cambia una pagina</b><span>Contatti, Privacy… testi e foto</span></a>
+      <a class="tile" href="sito.html#post"><b>Cambia un articolo</b><span>Gli articoli del blog: testi e foto</span></a>
+      <a class="tile" href="sito.html#product"><b>Cambia un prodotto</b><span>Nome, descrizione, foto e prezzo</span></a>
+      <a class="tile" href="foto.html"><b>Cambia le foto dei prodotti</b><span>Controllo veloce, categoria per categoria</span></a>
+    </div>
+    <p class="hint" style="margin-top:22px"><a href="guida.html" style="color:inherit">Come si usa? (guida semplice)</a></p>
+  </section>
+</div>
 
-  <div class="stats" id="stats"></div>
-  <div class="grid" id="grid"></div>
+<script src="config.js"></script>
+<script src="utenti.js"></script>
+<script src="sessione.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const MSG = {
+  scaduta: ["info", "La sessione è scaduta per sicurezza. Accedi di nuovo."],
+  limite: ["info", "Hai fatto il numero massimo di modifiche: per sicurezza la sessione è finita. Accedi di nuovo per continuare."],
+  uscito: ["ok", "Sei uscito. A presto!"],
+};
+function showMsg(id, kind, text){ const m = $(id); m.className = "msg " + kind; m.textContent = text; }
 
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+function render(){
+  const s = MNP.get();
+  $("vLogin").classList.toggle("hide", !!s);
+  $("vMenu").classList.toggle("hide", !s);
+  if (s){
+    $("hello").textContent = "Ciao " + s.name + "!";
+    $("count").textContent = "Modifiche fatte in questa sessione: " + s.actions + " su " + MNP.MAX_ACTIONS;
+  }
+}
+
+Object.entries(MNP.users).forEach(([id, u]) => { const o = document.createElement("option"); o.value = id; o.textContent = u.name; $("who").appendChild(o); });
+try{ const last = localStorage.getItem("mnp_last_user"); if (last && MNP.users[last]) $("who").value = last; }catch(e){}
+
+const q = new URLSearchParams(location.search).get("msg");
+if (q && MSG[q]) showMsg(MNP.get() ? "menuMsg" : "loginMsg", MSG[q][0], MSG[q][1]);
+
+async function doLogin(){
+  const uid = $("who").value, code = $("code").value;
+  if (!code){ showMsg("loginMsg","err","Scrivi il tuo codice."); return; }
+  $("loginBtn").disabled = true; showMsg("loginMsg","info","Controllo il codice…");
+  try{
+    await MNP.login(uid, code);
+    try{ localStorage.setItem("mnp_last_user", uid); }catch(e){}
+    $("code").value = ""; $("loginMsg").className = "msg";
+    render();
+  }catch(e){
+    showMsg("loginMsg","err", e.message === "codice" ? "Il codice non è corretto. Riprova." : "Non riesco ad accedere. Controlla internet e riprova.");
+  }
+  $("loginBtn").disabled = false;
+}
+$("loginBtn").onclick = doLogin;
+$("code").addEventListener("keydown", e => { if (e.key === "Enter") doLogin(); });
+$("logoutBtn").onclick = async () => { $("logoutBtn").disabled = true; await MNP.logout("uscita volontaria"); $("logoutBtn").disabled = false; showMsg("loginMsg","ok", MSG.uscito[1]); render(); };
+setInterval(render, 20000);
+render();
+</script>
 </body>
 </html>
