@@ -52,7 +52,7 @@ select,input{width:100%;font:inherit;padding:13px;border:1px solid var(--line);b
     <input type="password" id="code" autocomplete="current-password" autocapitalize="off" spellcheck="false">
     <div class="msg" id="loginMsg"></div>
     <button class="btn" id="loginBtn" type="button">Entra</button>
-    <p class="hint" style="margin-bottom:0">Quando entri, e quando esci, Marco riceve un avviso. Per sicurezza l'accesso si chiude da solo dopo 10 modifiche o dopo 30 minuti senza usare la pagina.</p>
+    <p class="hint" style="margin-bottom:0">Quando entri, e quando esci, Marco riceve un avviso. Per sicurezza l'accesso si chiude da solo dopo <span id="lim">30</span> modifiche o dopo 30 minuti senza usare la pagina.</p>
   </section>
 
   <!-- ===== MENU ===== -->
@@ -79,6 +79,7 @@ select,input{width:100%;font:inherit;padding:13px;border:1px solid var(--line);b
 <script src="sessione.js"></script>
 <script>
 const $ = id => document.getElementById(id);
+$("lim").textContent = MNP.MAX_ACTIONS;
 const MSG = {
   scaduta: ["info", "La sessione è scaduta per sicurezza. Accedi di nuovo."],
   limite: ["info", "Hai fatto il numero massimo di modifiche: per sicurezza la sessione è finita. Accedi di nuovo per continuare."],

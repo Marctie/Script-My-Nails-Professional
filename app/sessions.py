@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 ITERATIONS = 600_000
-DEFAULT_MAX_ACTIONS = 10
+DEFAULT_MAX_ACTIONS = 30      # deve coincidere con maxActions in docs/utenti.js (lo scrive gen_utenti.py)
 DEFAULT_IDLE_MIN = 30
 
 
