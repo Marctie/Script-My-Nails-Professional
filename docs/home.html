@@ -169,7 +169,7 @@ async function send(home_hero){
   try{ payload = await MNP.buildPayload({category:"home", product_id:"hero", status:"custom", home_hero}, home_hero); }
   catch(e){ say("err","La sessione e' scaduta: torna al menu e accedi di nuovo."); return false; }
   for (let i=0;i<3;i++){
-    try{ const r = await fetch(WORKER_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); if(r.ok) return true; }catch(e){}
+    try{ const r = await fetch(WORKER_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(MNP.wrap(payload))}); if(r.ok) return true; }catch(e){}
     await new Promise(r => setTimeout(r, 2000*(i+1)));
   }
   return false;
@@ -204,7 +204,7 @@ $("publish").onclick = async () => {
   const want = {t1: hero.title_1.toUpperCase(), btn: hero.btn_text, k: hero.kicker_bold};
   const ok = await waitForChange(c => c.title_1.toUpperCase()===want.t1 && c.btn_text===want.btn && c.kicker_bold===want.k && (!photoDataUrl || c._img !== currentImg));
   if (ok){ say("ok","✅ Fatto! La tua Home è aggiornata."); photoDataUrl=null; currentImg=(await loadQuiet())._img; b.disabled = r.disabled = false; await afterSuccess(); return; }
-  else say("wait","Richiesta inviata, ma non vedo ancora la modifica sul sito. Riprova a guardare tra qualche minuto; se non cambia, avvisa Marco.");
+  else say("wait","La tua richiesta è stata inviata ed è al sicuro in coda, ma non vedo ancora la modifica sul sito. Se il sistema è spento per un momento, la modifica viene fatta da sola appena torna attivo: NON serve rifarla. Riguarda tra qualche minuto; se non cambia, avvisa Marco.");
   b.disabled = r.disabled = false;
 };
 $("restore").onclick = async () => {

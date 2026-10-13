@@ -112,54 +112,59 @@ class Sessions:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(json.dumps(self.data, ensure_ascii=False, indent=1), encoding="utf-8")
 
-    def _summary(self, s: dict, reason: str) -> dict:
-        end = self.clock()
+    def _t(self, at):
+        """L'orario da usare: 'at' (momento in cui la richiesta e' entrata in coda) oppure adesso."""
+        return self.clock() if at is None else at
+
+    def _summary(self, s: dict, reason: str, at=None) -> dict:
+        end = max(self._t(at), s["started"])
         return {"user": s["user"], "started": s["started"], "ended": end, "duration_s": int(end - s["started"]),
                 "reason": reason, "actions": list(s["actions"]), "device": s.get("device", ""), "relogin": s.get("relogin", False)}
 
-    def login(self, user: str, device: str = "") -> dict:
+    def login(self, user: str, device: str = "", at=None) -> dict:
         """Apre la sessione. Se ce n'era gia' una la sostituisce e ne restituisce il riepilogo in 'previous'."""
         with self.lock:
-            prev = self._summary(self.data[user], "nuovo login") if user in self.data else None
-            now = self.clock()
+            prev = self._summary(self.data[user], "nuovo login", at) if user in self.data else None
+            now = self._t(at)
             self.data[user] = {"user": user, "started": now, "last": now, "actions": [], "device": (device or "")[:120]}
             self._save()
             return {"session": dict(self.data[user]), "previous": prev}
 
-    def active(self, user: str) -> dict | None:
-        """La sessione se e' attiva e non scaduta, altrimenti None (la scadenza vera la chiude sweep())."""
+    def active(self, user: str, at=None) -> dict | None:
+        """La sessione se e' attiva e non scaduta (rispetto a 'at' o ad adesso), altrimenti None (la scadenza vera la chiude sweep())."""
         with self.lock:
             s = self.data.get(user)
-            if not s or self.clock() - s["last"] > self.idle_s:
+            if not s or self._t(at) - s["last"] > self.idle_s:
                 return None
             return s
 
-    def touch(self, user: str):
+    def touch(self, user: str, at=None):
         with self.lock:
             if user in self.data:
-                self.data[user]["last"] = self.clock()
+                self.data[user]["last"] = max(self.data[user]["last"], self._t(at))
                 self._save()
 
-    def record_action(self, user: str, text: str) -> dict:
+    def record_action(self, user: str, text: str, at=None) -> dict:
         """Registra una modifica riuscita. Ritorna {'count','max','closed','summary'}: se raggiunto il limite la sessione si chiude."""
         with self.lock:
             s = self.data[user]
-            s["actions"].append({"t": self.clock(), "text": text})
-            s["last"] = self.clock()
+            t = self._t(at)
+            s["actions"].append({"t": t, "text": text})
+            s["last"] = max(s["last"], t)
             n = len(s["actions"])
             if n >= self.max_actions:
-                summary = self._summary(s, f"limite di {self.max_actions} modifiche raggiunto")
+                summary = self._summary(s, f"limite di {self.max_actions} modifiche raggiunto", at)
                 del self.data[user]
                 self._save()
                 return {"count": n, "max": self.max_actions, "closed": True, "summary": summary}
             self._save()
             return {"count": n, "max": self.max_actions, "closed": False, "summary": None}
 
-    def logout(self, user: str, reason: str = "uscita volontaria") -> dict | None:
+    def logout(self, user: str, reason: str = "uscita volontaria", at=None) -> dict | None:
         with self.lock:
             if user not in self.data:
                 return None
-            summary = self._summary(self.data[user], reason)
+            summary = self._summary(self.data[user], reason, at)
             del self.data[user]
             self._save()
             return summary
