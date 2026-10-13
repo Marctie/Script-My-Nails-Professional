@@ -76,6 +76,7 @@ def notify(text: str) -> None:
         return
     if len(text) > 3900:                                   # limite di Telegram: 4096 caratteri per messaggio
         text = text[:3850] + "\n… (messaggio accorciato)"
+    logger.info("TELEGRAM> " + " | ".join(text.split("\n")[:6])[:400])   # ogni avviso resta anche nel log: registro delle attivita' e visibilita' per il monitoraggio
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_LIVE_BOT_TOKEN}/sendMessage",
