@@ -670,13 +670,21 @@ def github_queue_polling_loop():
 
                     if payload.get("session_event") is not None:
                         # login / logout / tentativo fallito: sempre chiusi subito (nessun ritento)
-                        process_session_event(payload)
+                        try:
+                            process_session_event(payload)
+                        except Exception:
+                            logger.exception("Errore imprevisto in un evento di sessione (scartato)")
                         delete_queue_file(f["path"], f["sha"])
                         _clear_queue_failure(f["name"])
                         continue
 
                     if payload.get("site_edit") is not None:
-                        success = process_site_edit(payload)
+                        try:
+                            success = process_site_edit(payload)
+                        except Exception:
+                            logger.exception("Errore imprevisto nella richiesta (sito)")
+                            notify("⚠️ SITO: errore imprevisto nell'elaborazione di una richiesta (dettagli nel log del telefono). Ritento; dopo 5 tentativi rinuncio.")
+                            success = False
                         if success:
                             delete_queue_file(f["path"], f["sha"])
                             _clear_queue_failure(f["name"])
@@ -689,7 +697,12 @@ def github_queue_polling_loop():
                         continue
 
                     if payload.get("home_hero") is not None:
-                        success = process_home_hero(payload)
+                        try:
+                            success = process_home_hero(payload)
+                        except Exception:
+                            logger.exception("Errore imprevisto nella richiesta (home)")
+                            notify("⚠️ HOME: errore imprevisto nell'elaborazione di una richiesta (dettagli nel log del telefono). Ritento; dopo 5 tentativi rinuncio.")
+                            success = False
                         if success:
                             delete_queue_file(f["path"], f["sha"])
                             _clear_queue_failure(f["name"])

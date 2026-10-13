@@ -162,10 +162,49 @@ def parse_current(content: str) -> dict:
 
 
 # ------------------------------------------------------------------ foto
+def _jpeg_size(raw: bytes):
+    """(larghezza, altezza) di un JPEG leggendo il marcatore SOF, senza librerie esterne; None se non e' un JPEG leggibile."""
+    if raw[:3] != b"\xff\xd8\xff":
+        return None
+    i, n = 2, len(raw)
+    while i + 9 < n:
+        if raw[i] != 0xFF:
+            i += 1
+            continue
+        m = raw[i + 1]
+        if m == 0xFF:
+            i += 1
+            continue
+        if m in (0xD8, 0x01) or 0xD0 <= m <= 0xD7:
+            i += 2
+            continue
+        seg = int.from_bytes(raw[i + 2:i + 4], "big")
+        if 0xC0 <= m <= 0xCF and m not in (0xC4, 0xC8, 0xCC):
+            return int.from_bytes(raw[i + 7:i + 9], "big"), int.from_bytes(raw[i + 5:i + 7], "big")
+        i += 2 + seg
+    return None
+
+
+def _prepare_without_pillow(raw: bytes, err, min_width: int) -> bytes:
+    """Piano B se sul telefono manca Pillow: la pagina invia sempre JPEG gia' ridimensionati. Qui si controlla solo che sia un JPEG
+    leggibile, abbastanza largo e non enorme (WordPress controlla comunque il file al caricamento)."""
+    size = _jpeg_size(raw)
+    if not size:
+        raise err("Sul telefono manca la libreria per elaborare le foto e questa non e' un JPEG: usa una foto JPG.")
+    if size[0] < min_width:
+        raise err(f"Foto troppo piccola ({size[0]} px di larghezza, ne servono almeno {min_width}).")
+    if size[0] > 8000 or size[1] > 8000:
+        raise err("Foto troppo grande (max 8000 px per lato).")
+    return raw
+
+
 def prepare_image(raw: bytes) -> bytes:
-    from PIL import Image  # import qui: nei test senza foto non serve
     if len(raw) > MAX_IMAGE_BYTES:
         raise HeroError("La foto pesa troppo (max 6 MB).")
+    try:
+        from PIL import Image  # import qui: nei test senza foto non serve
+    except ImportError:
+        return _prepare_without_pillow(raw, HeroError, MIN_IMAGE_WIDTH)
     try:
         img = Image.open(io.BytesIO(raw))
         img.verify()
