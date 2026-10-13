@@ -131,16 +131,35 @@ async function submitToLiveServer(category, productId, status, customImage) {
     image_mime: status === "custom" && customImage ? (customImage.match(/data:(.*?);base64/) || [])[1] : null,
   };
 
+  // Con il login attivo la richiesta e' firmata dall'utente (il telefono sa CHI ha fatto la modifica e la conta nella sessione).
+  let body = payload;
+  if (window.MNP && MNP.get()) {
+    try {
+      body = await MNP.buildPayload(payload, { category, product_id: productId, status });
+    } catch (e) {
+      body = payload; // sessione appena scaduta: parte non firmata, il telefono decide (di default la accetta come prima)
+    }
+  }
+
   let lastOutcome = null;
   for (let attempt = 1; attempt <= SUBMIT_MAX_ATTEMPTS; attempt++) {
     try {
       const res = await fetch(WORKER_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         lastOutcome = "inviato (verra' pubblicato a breve)";
+        // una foto vera cambiata conta come "modifica" nella sessione; la semplice conferma "va bene cosi'" no
+        if (status === "custom" && window.MNP && MNP.get()) {
+          MNP.countAction().then(r => {
+            if (r.closed) {
+              alert("Hai fatto " + r.max + " modifiche: per sicurezza la sessione e' finita. Rifai l'accesso per continuare.");
+              location.replace("index.html?msg=limite");
+            }
+          });
+        }
         break;
       }
       lastOutcome = `errore invio: HTTP ${res.status}`;

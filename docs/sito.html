@@ -126,8 +126,6 @@ textarea{resize:vertical;min-height:52px}
   <div class="step"><h2>Cosa cambia</h2><ul class="sum" id="sum"></ul></div>
   <div class="step"><h2>Anteprima finale</h2><div id="finalPv"></div></div>
   <div class="step"><h2>Pubblica</h2>
-    <label for="pin">Codice segreto <span class="hint">te lo ha dato Marco, si scrive una volta sola</span></label>
-    <input type="password" id="pin" autocomplete="off" autocapitalize="off">
     <div class="msg" id="rMsg"></div>
     <button class="btn" id="publish" type="button" style="margin-top:14px">Conferma e pubblica sul sito</button>
     <button class="btn alt" id="cancelRev" type="button">No, torno a modificare</button>
@@ -138,6 +136,9 @@ textarea{resize:vertical;min-height:52px}
 </div>
 
 <script src="config.js"></script>
+<script src="utenti.js"></script>
+<script src="sessione.js"></script>
+<script>if (MNP.guard()) MNP.renderBar(document.querySelector(".wrap"));</script>
 <script>
 const SITE = "https://mynailsprofessional.it";
 const API = SITE + "/wp-json";
@@ -450,33 +451,18 @@ $("toReview").onclick = () => {
 $("backEdit").onclick = $("cancelRev").onclick = () => show("vEdit");
 $("backList").onclick = () => { cur = null; show("vList"); };
 
-// <FIRMA>
-function canon(v){
-  if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
-  if (v && typeof v === "object") return "{" + Object.keys(v).sort().filter(k => v[k] !== undefined).map(k => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}";
-  return JSON.stringify(v);
+
+
+async function afterSuccess(){
+  const r = await MNP.countAction();
+  if (r.closed){ alert("Hai fatto " + r.max + " modifiche: per sicurezza la sessione e' finita. Rifai l'accesso per continuare."); location.replace("index.html?msg=limite"); return true; }
+  return false;
 }
-function signable(req){
-  const o = Object.assign({}, req);
-  if (o.images) o.images = o.images.map(i => { const c = Object.assign({}, i); delete c.image_base64; delete c.image_mime; return c; });
-  return o;
-}
-async function hmacHex(key, message){
-  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(key), {name:"HMAC",hash:"SHA-256"}, false, ["sign"]);
-  const s = await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(message));
-  return [...new Uint8Array(s)].map(b => b.toString(16).padStart(2,"0")).join("");
-}
-async function buildPayload(pin, req){
-  const ts = Math.floor(Date.now()/1000);
-  return {category:"home", product_id:"site", status:"custom", site_edit:req, ts, sig: await hmacHex(pin, ts + "|" + canon(signable(req)))};
-}
-// </FIRMA>
 
 async function send(req, msgId){
-  const pin = $("pin").value.trim();
-  if (!pin){ say(msgId,"err","Scrivi il codice segreto."); return false; }
-  try{ localStorage.setItem("mnp_pin", pin); }catch(e){}
-  const payload = await buildPayload(pin, req);
+  let payload;
+  try{ payload = await MNP.buildPayload({category:"home", product_id:"site", status:"custom", site_edit:req}, req); }
+  catch(e){ say(msgId,"err","La sessione e' scaduta: torna al menu e accedi di nuovo."); return false; }
   for (let i = 0; i < 3; i++){
     try{ const r = await fetch(WORKER_URL, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)}); if (r.ok) return true; }catch(e){}
     await new Promise(r => setTimeout(r, 2000*(i+1)));
@@ -506,7 +492,7 @@ async function doPublish(){
   const before = cur.modified;
   const ok = await waitFor(m => m !== before);
   b.disabled = c.disabled = false;
-  if (ok){ say("rMsg","ok","✅ Fatto! Il sito è aggiornato."); b.classList.add("hide"); c.classList.add("hide"); $("doneBtn").classList.remove("hide"); }
+  if (ok){ say("rMsg","ok","✅ Fatto! Il sito è aggiornato."); b.classList.add("hide"); c.classList.add("hide"); $("doneBtn").classList.remove("hide"); await afterSuccess(); }
   else say("rMsg","wait","Richiesta inviata, ma non vedo ancora la modifica sul sito. Riprova a guardare tra qualche minuto; se non cambia, avvisa Marco (lui riceve il motivo su Telegram).");
 }
 $("doneBtn").onclick = () => { cur = null; show("vList"); };
@@ -514,13 +500,12 @@ $("doneBtn").onclick = () => { cur = null; show("vList"); };
 async function doRestore(){
   const b = $("publish"); b.disabled = true; say("rMsg","wait","Sto inviando la richiesta…");
   const ok = await send({action:"restore", kind:cur.kind, id:cur.id}, "rMsg"); b.disabled = false;
-  if (ok){ say("rMsg","ok","Richiesta inviata. Tra circa un minuto la pagina torna com'era (ti avvisa anche Marco)."); b.classList.add("hide"); $("cancelRev").classList.add("hide"); $("doneBtn").classList.remove("hide"); }
+  if (ok){ say("rMsg","ok","Richiesta inviata. Tra circa un minuto la pagina torna com'era (ti avvisa anche Marco)."); b.classList.add("hide"); $("cancelRev").classList.add("hide"); $("doneBtn").classList.remove("hide"); await afterSuccess(); }
 }
 function openConfirm(mode){
   $("publish").classList.remove("hide"); $("cancelRev").classList.remove("hide"); $("doneBtn").classList.add("hide"); say("rMsg","","");
   $("publish").textContent = mode === "restore" ? "Conferma il ritorno indietro" : "Conferma e pubblica sul sito";
   $("publish").onclick = mode === "restore" ? doRestore : doPublish;
-  try{ const p = localStorage.getItem("mnp_pin"); if (p) $("pin").value = p; }catch(e){}
   show("vReview");
 }
 
@@ -530,6 +515,8 @@ $("restoreBtn").onclick = () => {
   openConfirm("restore");
 };
 
+{ const h = location.hash.slice(1);       // entrata dal menu: #page, #post o #product
+  if (["page","post","product"].includes(h)){ kind = h; document.querySelectorAll("#vList .tab").forEach(x => x.classList.toggle("on", x.dataset.kind === h)); } }
 loadList(true);
 </script>
 </body>

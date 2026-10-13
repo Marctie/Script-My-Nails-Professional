@@ -73,6 +73,8 @@ MAX_RECENT_EVENTS = 50
 def notify(text: str) -> None:
     if not TELEGRAM_LIVE_BOT_TOKEN or not TELEGRAM_LIVE_CHAT_ID:
         return
+    if len(text) > 3900:                                   # limite di Telegram: 4096 caratteri per messaggio
+        text = text[:3850] + "\n… (messaggio accorciato)"
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_LIVE_BOT_TOKEN}/sendMessage",
@@ -87,6 +89,158 @@ def record_event(event: dict):
     event["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
     STATS["recent_events"].insert(0, event)
     del STATS["recent_events"][MAX_RECENT_EVENTS:]
+
+
+# --- Login, sessioni e messaggi "chi ha fatto cosa" -------------------------
+# Ogni utente (Miriam, Marco...) ha un codice personale: EDITOR_USERS="miriam=CODICE;marco=CODICE" nel .env.
+# Il browser manda un evento firmato di login; le modifiche al sito sono accettate solo con firma valida E sessione attiva.
+# La sessione si chiude da sola dopo SESSION_MAX_ACTIONS modifiche o SESSION_IDLE_MIN minuti di inattivita'.
+# Logica in sessions.py. REQUIRE_LOGIN_FOTO=1 rende obbligatorio il login anche per le foto prodotto (default: no).
+import sessions as editor_sessions  # noqa: E402
+
+SESSIONS = editor_sessions.Sessions(
+    ROOT / "status" / "editor_sessions.json",
+    max_actions=int(os.environ.get("SESSION_MAX_ACTIONS", editor_sessions.DEFAULT_MAX_ACTIONS)),
+    idle_min=int(os.environ.get("SESSION_IDLE_MIN", editor_sessions.DEFAULT_IDLE_MIN)),
+)
+REQUIRE_LOGIN_FOTO = os.environ.get("REQUIRE_LOGIN_FOTO", "0") == "1"
+_users_cache: dict | None = None
+_failed_login_last: dict = {}
+
+
+def get_users() -> dict:
+    """Utenti e chiavi (la derivazione PBKDF2 costa circa un secondo: si fa una volta sola)."""
+    global _users_cache
+    if _users_cache is None:
+        _users_cache = editor_sessions.parse_users(os.environ.get("EDITOR_USERS", ""))
+    return _users_cache
+
+
+def user_name(uid) -> str:
+    u = get_users().get(str(uid or "").lower())
+    return u["name"] if u else (str(uid)[:30] if uid else "?")
+
+
+def fmt_t(ts: float) -> str:
+    return time.strftime("%d/%m/%Y %H:%M", time.localtime(ts))
+
+
+def fmt_dur(sec: int) -> str:
+    m, s = divmod(int(sec), 60)
+    return f"{m} min {s:02d} s" if m else f"{s} s"
+
+
+def session_text(summ: dict, head: str) -> str:
+    lines = [f"{head} — {user_name(summ['user'])}",
+             f"🕒 Dal {fmt_t(summ['started'])} al {fmt_t(summ['ended'])} (durata {fmt_dur(summ['duration_s'])})",
+             f"📌 Motivo: {summ['reason']}"]
+    if summ.get("device"):
+        lines.append(f"📱 Dispositivo: {summ['device']}")
+    acts = summ.get("actions") or []
+    lines.append(f"📝 Modifiche fatte in questa sessione: {len(acts)}")
+    for i, a in enumerate(acts, 1):
+        lines.append(f"  {i}) {time.strftime('%H:%M', time.localtime(a['t']))} — {a['text']}")
+    return "\n".join(lines)
+
+
+def authenticate(payload: dict, obj: dict, what: str):
+    """Verifica la firma. Ritorna l'id utente oppure None (con avviso Telegram dettagliato)."""
+    uid = editor_sessions.verify(get_users(), payload, obj, seen=None)
+    if uid and str(payload.get("sig")) in _home_seen_sigs:      # gia' elaborata: replay
+        uid = None
+    if not uid:
+        STATS["rejected"] += 1
+        claimed = str(payload.get("user") or "nessuno")[:30]
+        logger.warning(f"Richiesta '{what}' rifiutata: firma non valida (utente dichiarato: {claimed}).")
+        notify(f"🚫 RICHIESTA RIFIUTATA ({what}): firma non valida, scaduta o gia' usata.\n"
+               f"👤 Utente dichiarato: {claimed}\n🕒 {fmt_t(time.time())}\nNessuna modifica fatta al sito.")
+    return uid
+
+
+def _mark_seen(payload: dict) -> None:
+    """Da chiamare quando una richiesta firmata e' CHIUSA (non se va ritentata): da qui in poi la stessa firma e' un replay."""
+    if payload.get("sig"):
+        _home_seen_sigs.add(str(payload["sig"]))
+
+
+def require_session(uid: str, what: str) -> bool:
+    if SESSIONS.active(uid):
+        SESSIONS.touch(uid)
+        return True
+    STATS["rejected"] += 1
+    notify(f"🚫 {user_name(uid)} ha provato a fare una modifica ({what}) SENZA una sessione attiva "
+           f"(login non fatto, scaduta per inattivita' o chiusa dopo {SESSIONS.max_actions} modifiche).\n"
+           f"🕒 {fmt_t(time.time())}\nNessuna modifica fatta al sito: deve rifare il login.")
+    return False
+
+
+def record_session_action(uid: str, text: str) -> str:
+    """Registra la modifica nella sessione. Ritorna una riga 'Modifica n/N' e, se il limite e' raggiunto, avvisa della chiusura."""
+    if not SESSIONS.active(uid):
+        return "Modifica fuori sessione (non conteggiata)"
+    r = SESSIONS.record_action(uid, text)
+    if r["closed"]:
+        notify(session_text(r["summary"], "🔒 LOGOUT AUTOMATICO (limite modifiche)"))
+    return f"Modifica {r['count']} di {r['max']} della sessione"
+
+
+def describe_request(data: dict) -> list:
+    """Cosa chiede la richiesta, in righe leggibili (usato per 'ricevuta' e per i rifiuti)."""
+    out = []
+    for f in ("title", "excerpt"):
+        if data.get(f):
+            out.append(f"{'Titolo' if f == 'title' else 'Riassunto'}: «{data[f].get('old','')[:300]}» → «{data[f].get('new','')[:300]}»")
+    for t in data.get("texts") or []:
+        out.append(f"Testo: «{str(t.get('old',''))[:300]}» → «{str(t.get('new',''))[:300]}»")
+    for im in data.get("images") or []:
+        old = str(im.get("old", "")).rsplit("/", 1)[-1] or "(nessuna)"
+        out.append(f"Foto: {old} → nuova foto caricata ({im.get('field')})")
+    p = data.get("prices")
+    if p:
+        out.append(f"Prezzo: {p.get('seen_regular','?')} → {p.get('regular_price','?')} €  |  offerta: {p.get('seen_sale') or '-'} → {p.get('sale_price') or '-'}")
+    return out
+
+
+def process_session_event(payload: dict) -> bool:
+    ev = payload.get("session_event") or {}
+    typ = ev.get("type")
+    if typ == "login_failed":                     # non firmato (chi sbaglia non ha la chiave): solo avviso, con limite anti-spam
+        who = str(ev.get("user_try") or "?")[:30]
+        if time.time() - _failed_login_last.get(who, 0) > 60:
+            _failed_login_last[who] = time.time()
+            notify(f"⚠️ TENTATIVO DI ACCESSO FALLITO — utente «{who}», codice errato.\n🕒 {fmt_t(time.time())}\n📱 {str(ev.get('device',''))[:120]}")
+        return True
+    uid = authenticate(payload, ev, f"sessione/{typ}")
+    if not uid:
+        return True
+    name = user_name(uid)
+    if typ == "login":
+        r = SESSIONS.login(uid, str(ev.get("device", "")))
+        if r["previous"]:
+            notify(session_text(r["previous"], "🔁 SESSIONE PRECEDENTE CHIUSA (nuovo login)"))
+        notify(f"🔓 LOGIN — {name} ha effettuato l'accesso\n🕒 {fmt_t(time.time())}\n📱 Dispositivo: {str(ev.get('device',''))[:120]}\n"
+               f"La sessione si chiude dopo {SESSIONS.max_actions} modifiche o {SESSIONS.idle_s // 60} minuti di inattivita'.")
+    elif typ == "logout":
+        summ = SESSIONS.logout(uid, str(ev.get("reason") or "uscita volontaria")[:80])
+        if summ:
+            notify(session_text(summ, "🔒 LOGOUT"))
+        else:
+            logger.info(f"Logout di {uid} ignorato: nessuna sessione aperta (gia' chiusa).")
+    else:
+        logger.warning(f"Evento di sessione sconosciuto: {typ}")
+    _mark_seen(payload)
+    return True
+
+
+def session_sweeper_loop():
+    """Ogni minuto chiude le sessioni rimaste inattive e manda il riepilogo su Telegram."""
+    while True:
+        time.sleep(60)
+        try:
+            for summ in SESSIONS.sweep():
+                notify(session_text(summ, "⏳ SESSIONE SCADUTA (nessun logout)"))
+        except Exception:
+            logger.exception("Errore nel controllo delle sessioni")
 
 
 def processed_dir_for(category: str) -> Path:
@@ -188,13 +342,14 @@ def publish_image(category: str, product_id: int, image_path: Path):
     return media_id
 
 
-def process_choice(category: str, product_id: str, status: str, image_bytes: bytes = None, image_mime: str = "") -> bool:
+def process_choice(category: str, product_id: str, status: str, image_bytes: bytes = None, image_mime: str = "", uid: str = "") -> bool:
     """Ritorna True se la voce puo' essere considerata definita (pubblicata
     con successo, o registrata senza bisogno di pubblicare) e quindi rimossa
     dalla coda; False se la pubblicazione e' fallita e andrebbe ritentata
     (vedi QUEUE_MAX_ATTEMPTS in github_queue_polling_loop) prima di darla
     per persa."""
     STATS["requests"] += 1
+    who = f"\n👤 Utente: {user_name(uid)}  🕒 {fmt_t(time.time())}" if uid else ""
 
     review_state_path = processed_dir_for(category) / "review_state.json"
     review_state = load_json(review_state_path, {})
@@ -205,7 +360,7 @@ def process_choice(category: str, product_id: str, status: str, image_bytes: byt
     if entry is None:
         STATS["errors"] += 1
         logger.error(f"Prodotto {product_id} non trovato in categoria {category}")
-        notify(f"⚠️ My Nails: prodotto {product_id} non trovato in categoria {category}, scelta ignorata.")
+        notify(f"⚠️ My Nails: prodotto {product_id} non trovato in categoria {category}, scelta ignorata.{who}")
         return True  # non c'e' nulla da ritentare: il prodotto non esiste nel manifest
 
     log_path = processed_dir_for(category) / "live_publish_log.json"
@@ -214,7 +369,7 @@ def process_choice(category: str, product_id: str, status: str, image_bytes: byt
 
     try:
         if status == "custom" and image_bytes:
-            notify(f"📩 My Nails: ricevuta una foto dalla cliente per \"{product_name}\" ({category}), avvio pubblicazione...")
+            notify(f"📩 My Nails: ricevuta una foto dalla cliente per \"{product_name}\" ({category}), avvio pubblicazione...{who}")
             image_path = save_custom_image_bytes(category, product_id, image_bytes, image_mime)
             notify(f"💾 My Nails: foto della cliente salvata in locale per \"{product_name}\" ({category}).")
             media_id = publish_image(category, entry["product_id"], image_path)
@@ -223,9 +378,11 @@ def process_choice(category: str, product_id: str, status: str, image_bytes: byt
             STATS["published"] += 1
             record_event({"category": category, "product_id": product_id, "action": "pubblicato (foto cliente)"})
             logger.info(f"[{category}] {product_id} pubblicato (foto cliente), media_id={media_id}")
+            counter = record_session_action(uid, f"foto prodotto «{product_name}» ({category})") if uid else ""
             notify(
                 f"⬆️ My Nails: nuova foto caricata su WordPress (media_id={media_id}) e impostata come "
                 f"immagine di \"{product_name}\" ({category}) su mynailsprofessional.it. ✅ Pubblicato."
+                f"{who}" + (f"\n🔢 {counter}" if counter else "")
             )
         else:
             log[product_id] = {"status": "registrato, nessuna pubblicazione", "review": status}
@@ -233,13 +390,13 @@ def process_choice(category: str, product_id: str, status: str, image_bytes: byt
             STATS["rejected"] += 1
             record_event({"category": category, "product_id": product_id, "action": f"registrato ({status})"})
             logger.info(f"[{category}] {product_id} registrato senza pubblicazione (status={status})")
-            notify(f"✔️ My Nails: \"{product_name}\" ({category}) confermato dalla cliente, nessuna modifica alla foto.")
+            notify(f"✔️ My Nails: \"{product_name}\" ({category}) confermato dalla cliente, nessuna modifica alla foto.{who}")
         return True
     except Exception as e:
         STATS["errors"] += 1
         record_event({"category": category, "product_id": product_id, "action": f"errore: {e}"})
         logger.exception(f"[{category}] {product_id} errore durante la pubblicazione")
-        notify(f"⚠️ My Nails: pubblicazione fallita per \"{product_name}\" ({category}), prodotto {product_id}: {e} — ritento automaticamente.")
+        notify(f"⚠️ My Nails: pubblicazione fallita per \"{product_name}\" ({category}), prodotto {product_id}: {e} — ritento automaticamente.{who}")
         return False
 
 
@@ -254,17 +411,33 @@ _home_lock = threading.Lock()
 
 
 def process_home_hero(payload: dict) -> bool:
-    """True = richiesta chiusa (ok o rifiutata); False = errore temporaneo, da ritentare."""
+    """True = richiesta chiusa (ok o rifiutata); False = errore temporaneo, da ritentare.
+    Serve il login: richiesta firmata dall'utente + sessione attiva."""
     import home_editor as he
 
     STATS["requests"] += 1
     data = payload.get("home_hero") or {}
     action = data.get("action", "publish")
-    if HOME_EDITOR_PIN and not he.verify_signature(HOME_EDITOR_PIN, payload, seen=_home_seen_sigs):
+    if not payload.get("user"):
         STATS["rejected"] += 1
-        logger.warning("Richiesta Home rifiutata: firma mancante, errata, scaduta o gia' usata.")
-        notify("🚫 My Nails Home: richiesta di modifica RIFIUTATA (codice errato, scaduto o gia' usato). Nessuna modifica fatta.")
+        notify(f"🚫 RICHIESTA RIFIUTATA (Home): arrivata senza login (pagina vecchia o non autorizzata).\n🕒 {fmt_t(time.time())}\n"
+               "Nessuna modifica fatta al sito.")
         return True
+    uid = authenticate(payload, data, "Home")
+    if not uid:
+        return True
+    name = user_name(uid)
+    if not require_session(uid, "Home"):
+        return True
+    wanted = []
+    if action == "restore":
+        wanted.append("Chiede di tornare alla versione precedente della Home.")
+    else:
+        labels = [("kicker_bold", "Parola in alto"), ("kicker_1", "Riga 1"), ("kicker_2", "Riga 2"), ("title_1", "Titolo"), ("num_1", "N. 1"),
+                  ("title_2", "Titolo 2"), ("num_2", "N. 2"), ("sub_1", "Frase 1"), ("sub_2", "Frase 2"), ("btn_text", "Bottone"), ("target", "Destinazione")]
+        wanted = [f"{lab}: «{str(data.get(k, ''))[:120]}»" for k, lab in labels if data.get(k) not in (None, "")]
+        wanted.append("Foto: " + ("NUOVA foto caricata" if data.get("image_base64") else "invariata"))
+    notify(f"📥 {name} ha inviato una modifica alla HOME (parte in alto) — elaboro…\n🕒 {fmt_t(time.time())}\n" + "\n".join("• " + w for w in wanted))
     wp = he.WP(os.environ["WC_SITE_URL"], WP_USERNAME_HOME, WP_APP_PASSWORD_HOME)
     try:
         with _home_lock:
@@ -272,34 +445,42 @@ def process_home_hero(payload: dict) -> bool:
                 r = he.restore_previous(wp, HOME_BACKUP_DIR)
                 STATS["published"] += 1
                 record_event({"action": "home ripristinata"})
-                notify(f"↩️ My Nails Home: ripristinata la versione precedente ({r['restored_from']}).\nOra: {r['after'].get('title')} | {r['after'].get('button')}")
+                counter = record_session_action(uid, "Home: ripristinata la versione precedente")
+                notify(f"↩️ HOME RIPRISTINATA — 👤 {name}\nVersione ripristinata: {r['restored_from']}\n"
+                       f"Ora: {r['after'].get('title')} | {r['after'].get('button')}\n🔢 {counter}")
+                _mark_seen(payload)
                 return True
             image_bytes = base64.b64decode(data["image_base64"]) if data.get("image_base64") else None
             r = he.publish_hero(wp, HOME_BACKUP_DIR, data, image_bytes)
     except he.HeroError as e:
         STATS["rejected"] += 1
         logger.warning(f"Home: richiesta non eseguita: {e}")
-        notify(f"⚠️ My Nails Home: modifica NON eseguita — {e}\nIl sito e' rimasto com'era.")
+        notify(f"⚠️ HOME: modifica di {name} NON eseguita — {e}\nIl sito e' rimasto com'era.")
+        _mark_seen(payload)
         return True
     except requests.RequestException as e:
         STATS["errors"] += 1
         logger.exception("Home: errore di rete/WordPress")
-        notify(f"⚠️ My Nails Home: errore temporaneo ({e}) — ritento automaticamente.")
+        notify(f"⚠️ HOME: errore temporaneo ({e}) per la modifica di {name} — ritento automaticamente.")
         return False
 
+    _mark_seen(payload)
     if not r["changed"]:
-        notify("ℹ️ My Nails Home: nessuna differenza rispetto a quanto gia' pubblicato, non ho cambiato nulla.")
+        notify(f"ℹ️ HOME: nessuna differenza rispetto a quanto gia' pubblicato ({name}), non ho cambiato nulla.")
         return True
     STATS["published"] += 1
     record_event({"action": "home aggiornata", "revision": r.get("revision")})
     b, a = r["before"], r["after"]
+    changes = [f"• {lab}: «{b.get(k)}» → «{a.get(k)}»" for k, lab in
+               (("kicker", "Riga piccola"), ("title", "Titolo"), ("sub", "Frase"), ("button", "Bottone"), ("href", "Link del bottone"), ("image", "Foto"))
+               if b.get(k) != a.get(k)]
+    counter = record_session_action(uid, "Home: " + (", ".join(c.split(":")[0][2:] for c in changes) or "ritocchi"))
     notify(
-        "✅ My Nails Home AGGIORNATA da Miriam\n"
-        f"PRIMA: {b.get('title')} | {b.get('button')}\nDOPO:  {a.get('title')} | {a.get('button')}\n"
+        f"✅ HOME AGGIORNATA — 👤 {name}\n🕒 {fmt_t(time.time())}\n" + "\n".join(changes) + "\n"
         f"Foto: {'NUOVA ' + r['image_url'] if r.get('image_url') else 'invariata'}\n"
         f"Controllo pagina pubblica: {'OK' if r.get('public_ok') else 'DA VERIFICARE'}\n"
-        f"Revisione WordPress: {r.get('revision')}\nBackup: {Path(r['backup']).name}\n"
-        "Per tornare indietro: pulsante «Torna alla versione di prima» nella pagina di Miriam."
+        f"Revisione WordPress: {r.get('revision')}\nBackup: {Path(r['backup']).name}\n🔢 {counter}\n"
+        "Per tornare indietro: «Torna alla versione di prima» nella pagina della Home."
     )
     return True
 
@@ -325,20 +506,23 @@ def refresh_catalog_async() -> None:
 
 
 def process_site_edit(payload: dict) -> bool:
-    """True = richiesta chiusa (ok o rifiutata); False = errore temporaneo, da ritentare."""
+    """True = richiesta chiusa (ok o rifiutata); False = errore temporaneo, da ritentare.
+    Serve il login: richiesta firmata dall'utente + sessione attiva."""
     import site_editor as se
 
     STATS["requests"] += 1
     data = payload.get("site_edit") or {}
-    if not HOME_EDITOR_PIN:
-        STATS["rejected"] += 1
-        notify("🚫 My Nails Sito: richiesta rifiutata, manca HOME_EDITOR_PIN nel .env del telefono. Nessuna modifica fatta.")
+    uid = authenticate(payload, data, "Sito")
+    if not uid:
         return True
-    if not se.verify_signature(HOME_EDITOR_PIN, payload, key="site_edit", seen=_home_seen_sigs):
-        STATS["rejected"] += 1
-        logger.warning("Richiesta Sito rifiutata: firma mancante, errata, scaduta o gia' usata.")
-        notify("🚫 My Nails Sito: richiesta di modifica RIFIUTATA (codice errato, scaduto o gia' usato). Nessuna modifica fatta.")
+    name = user_name(uid)
+    if not require_session(uid, "Sito"):
         return True
+    kind = data.get("kind")
+    kl = {"page": "pagina", "post": "articolo", "product": "prodotto"}.get(kind, str(kind))
+    what = describe_request(data) if data.get("action") != "restore" else ["Chiede di tornare alla versione precedente."]
+    notify(f"📥 {name} ha inviato una modifica del SITO — elaboro…\n📄 {kl} #{data.get('id')}\n🕒 {fmt_t(time.time())}\n"
+           + "\n".join("• " + w for w in what[:20]))
     wp = se.WP(os.environ["WC_SITE_URL"], WP_USERNAME_HOME, WP_APP_PASSWORD_HOME)
     try:
         with _home_lock:
@@ -348,33 +532,40 @@ def process_site_edit(payload: dict) -> bool:
                 record_event({"action": f"sito ripristinato {r['kind']} {r['id']}"})
                 if r["kind"] == "product":
                     refresh_catalog_async()
-                notify(f"↩️ My Nails Sito: ripristinata la versione precedente di «{r.get('title')}» ({r['kind']} {r['id']}).")
+                counter = record_session_action(uid, f"ripristino {kl} «{r.get('title')}»")
+                notify(f"↩️ SITO RIPRISTINATO — 👤 {name}\n📄 {kl} «{r.get('title')}» (#{r['id']}) tornato alla versione precedente.\n🔢 {counter}")
+                _mark_seen(payload)
                 return True
             r = se.publish_edit(wp, SITE_BACKUP_DIR, data, allow_prices=True)
     except se.EditError as e:
         STATS["rejected"] += 1
         logger.warning(f"Sito: richiesta non eseguita: {e}")
-        notify(f"⚠️ My Nails Sito: modifica NON eseguita — {e}\nIl sito e' rimasto com'era.")
+        notify(f"⚠️ SITO: modifica di {name} NON eseguita — {e}\n📄 {kl} #{data.get('id')}\nIl sito e' rimasto com'era.")
+        _mark_seen(payload)
         return True
     except requests.RequestException as e:
         STATS["errors"] += 1
         logger.exception("Sito: errore di rete/WordPress")
-        notify(f"⚠️ My Nails Sito: errore temporaneo ({e}) — ritento automaticamente.")
+        notify(f"⚠️ SITO: errore temporaneo ({e}) per la modifica di {name} — ritento automaticamente.")
         return False
 
+    _mark_seen(payload)
     if not r["changed"]:
-        notify("ℹ️ My Nails Sito: nessuna differenza rispetto a quanto gia' pubblicato, non ho cambiato nulla.")
+        notify(f"ℹ️ SITO: nessuna differenza rispetto a quanto gia' pubblicato ({name}, {kl} #{data.get('id')}), non ho cambiato nulla.")
         return True
     STATS["published"] += 1
     record_event({"action": f"sito aggiornato {r['kind']} {r['id']}"})
     if r["kind"] == "product":
         refresh_catalog_async()
-    lines = "\n".join("• " + x for x in r["summary"][:15])
+    n_t = len(data.get("texts") or []) + (1 if data.get("title") else 0)
+    n_i = len(data.get("images") or [])
+    counter = record_session_action(uid, f"{kl} «{r.get('title')}»: {n_t} testi, {n_i} foto" + (", prezzo" if data.get("prices") else ""))
+    lines = "\n".join("• " + x for x in r["summary"][:40])
     notify(
-        f"✅ My Nails SITO AGGIORNATO da Miriam: «{r.get('title')}» ({r['kind']} {r['id']})\n{lines}\n"
+        f"✅ SITO AGGIORNATO — 👤 {name}\n📄 {kl} «{r.get('title')}» (#{r['id']})\n🕒 {fmt_t(time.time())}\n{lines}\n"
         f"Controllo pagina pubblica: {'OK' if r.get('public_ok') else 'DA VERIFICARE'}\n{r.get('link')}\n"
-        f"Backup: {Path(r['backup']).name}\n"
-        "Per tornare indietro: pulsante «Torna alla versione di prima» nella pagina di Miriam."
+        f"Backup: {Path(r['backup']).name}\n🔢 {counter}\n"
+        "Per tornare indietro: «Torna alla versione di prima» nella pagina di modifica."
     )
     return True
 
@@ -477,6 +668,13 @@ def github_queue_polling_loop():
                     content = base64.b64decode(file_resp.json()["content"])
                     payload = json.loads(content)
 
+                    if payload.get("session_event") is not None:
+                        # login / logout / tentativo fallito: sempre chiusi subito (nessun ritento)
+                        process_session_event(payload)
+                        delete_queue_file(f["path"], f["sha"])
+                        _clear_queue_failure(f["name"])
+                        continue
+
                     if payload.get("site_edit") is not None:
                         success = process_site_edit(payload)
                         if success:
@@ -510,8 +708,22 @@ def github_queue_polling_loop():
                     if payload.get("image_base64"):
                         image_bytes = base64.b64decode(payload["image_base64"])
 
+                    photo_uid = ""
                     if category and product_id and status in ("no_change", "custom"):
-                        success = process_choice(category, product_id, status, image_bytes, payload.get("image_mime", ""))
+                        # foto prodotto: se la richiesta porta un utente la firma deve essere valida; con REQUIRE_LOGIN_FOTO=1 il login e' obbligatorio
+                        if payload.get("user") or REQUIRE_LOGIN_FOTO:
+                            signed_obj = {"category": category, "product_id": payload.get("product_id"), "status": status}
+                            photo_uid = authenticate(payload, signed_obj, "Foto prodotto") if payload.get("user") else None
+                            if not photo_uid or (REQUIRE_LOGIN_FOTO and not require_session(photo_uid, "Foto prodotto")):
+                                if not payload.get("user"):
+                                    notify(f"🚫 Foto prodotto RIFIUTATA: serve il login.\n🕒 {fmt_t(time.time())}\nProdotto {product_id} ({category}).")
+                                _mark_seen(payload)
+                                delete_queue_file(f["path"], f["sha"])
+                                _clear_queue_failure(f["name"])
+                                continue
+                        success = process_choice(category, product_id, status, image_bytes, payload.get("image_mime", ""), photo_uid or "")
+                        if success:
+                            _mark_seen(payload)
                     else:
                         logger.warning(f"Voce di coda non valida, ignorata: {f['name']}")
                         success = True
@@ -569,6 +781,10 @@ if __name__ == "__main__":
     logger.info(f"Avvio live_server (PID {os.getpid()}), polling coda GitHub + dashboard locale su porta 5001")
     notify("✅ My Nails: server di pubblicazione avviato e in ascolto (coda GitHub, nessun tunnel).")
     threading.Thread(target=github_queue_polling_loop, daemon=True).start()
+    threading.Thread(target=session_sweeper_loop, daemon=True).start()
+    threading.Thread(target=get_users, daemon=True).start()   # calcola subito le chiavi (PBKDF2): il primo login non aspetta
+    if not os.environ.get("EDITOR_USERS"):
+        notify("⚠️ My Nails: EDITOR_USERS non impostato nel .env del telefono: nessun utente puo' fare login all'editor del sito.")
     refresh_catalog_async()   # catalogo prodotti per la pagina di Miriam (prezzi, galleria)
     try:
         app.run(host="127.0.0.1", port=5001, debug=False)
