@@ -59,6 +59,15 @@ input[type=text],select{width:100%;font:inherit;padding:12px;border:1px solid va
   <h1>Cambia i prezzi in blocco</h1>
   <p class="lead">Scegli una categoria, scegli i prodotti e di quanto cambiare il prezzo. Vedi sempre prima il risultato; ogni prezzo viene poi cambiato uno per uno.</p>
 
+  <section id="vJournal" class="step hide">
+    <h2>⚠️ C'è un lavoro lasciato a metà</h2>
+    <p id="jText"></p>
+    <button class="btn" id="jResume" type="button">Riprova quelli non ancora inviati</button>
+    <button class="btn alt" id="jCopy" type="button">Copia il riepilogo da mandare a Marco</button>
+    <button class="btn alt" id="jClear" type="button">Cancella questo promemoria</button>
+    <textarea id="jBox" class="hide" readonly rows="8" style="width:100%;margin-top:10px;font:14px monospace"></textarea>
+  </section>
+
   <section id="vMain">
     <div class="step"><h2>1. Categoria</h2>
       <div class="chips" id="cats"></div>
@@ -252,7 +261,7 @@ $("toReview").onclick = () => {
     return;
   }
   say("goMsg","","");
-  $("revText").innerHTML = `Stai per cambiare il prezzo di <b>${plan.length}</b> prodotti della categoria <b>${esc(cat)}</b> (${esc($("mode").selectedOptions[0].textContent.replace("…", $("val").value.trim()))}).<br>Ogni prodotto conta come una modifica (te ne restano ${rem}). Puoi tornare indietro prodotto per prodotto dall'editor «Cambia un prodotto» → «Torna alla versione di prima».`;
+  $("revText").innerHTML = `Stai per cambiare il prezzo di <b>${plan.length}</b> prodotti della categoria <b>${esc(cat)}</b> (${esc(($("val").value.trim() ? $("mode").selectedOptions[0].textContent.replace("…", $("val").value.trim()) : "prezzi scritti a mano"))}).<br>Ogni prodotto conta come una modifica (te ne restano ${rem}). Puoi tornare indietro prodotto per prodotto dall'editor «Cambia un prodotto» → «Torna alla versione di prima».`;
   say("rMsg","",""); $("bar").classList.add("hide");
   ["publish","cancelRev"].forEach(x => { $(x).classList.remove("hide"); $(x).disabled = false; }); $("doneBtn").classList.add("hide");
   $("vMain").classList.add("hide"); $("vReview").classList.remove("hide"); window.scrollTo(0,0);
@@ -261,7 +270,7 @@ $("cancelRev").onclick = () => { $("vReview").classList.add("hide"); $("vMain").
 $("doneBtn").onclick = () => location.reload();
 
 // ---- invio: una richiesta per prodotto, identica a quella dell'editor «Cambia un prodotto»
-async function sendOne(req){
+let sendOne = async function(req){
   const payload = await MNP.buildPayload({category:"home", product_id:"site", status:"custom", site_edit:req}, req);
   for (let i = 0; i < 3; i++){
     try{ const r = await fetch(WORKER_URL, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(MNP.wrap(payload))}); if (r.ok) return true; }catch(e){}
@@ -272,8 +281,46 @@ async function sendOne(req){
 let modifiedOf = async id => (await getJSON(`${API}/wp/v2/product/${id}?_fields=modified`)).modified;
 const fmt2 = n => Number(n).toFixed(2);
 
+// ---- registro del lavoro (nel browser): se qualcosa non va a buon fine resta qui e si puo' riprendere o girare a Marco
+const JK = "mnp_prezzi_journal";
+const jLoad = () => { try{ return JSON.parse(localStorage.getItem(JK) || "null"); }catch(e){ return null; } };
+const jSave = j => { try{ if (j) localStorage.setItem(JK, JSON.stringify(j)); else localStorage.removeItem(JK); }catch(e){} };
+const ST = {todo:"da inviare", sent:"inviato (non ancora visto sul sito)", ok:"fatto"};
+function jReport(j){
+  const u = (MNP.get() || {}).name || "?";
+  return `Prezzi in blocco - ${new Date(j.at).toLocaleString("it-IT")} - utente ${u} - categoria ${j.cat}
+` +
+    j.items.map(i => `${i.id} | ${i.name} | prima ${i.reg}${i.sale ? " (offerta " + i.sale + ")" : ""} -> ${i.nr}${i.ns !== "" ? " (offerta " + i.ns + ")" : ""} | ${ST[i.st]}`).join(String.fromCharCode(10));
+}
+function jShow(){
+  const j = jLoad(), open = j ? j.items.filter(i => i.st !== "ok") : [];
+  $("vJournal").classList.toggle("hide", !open.length); if (!open.length) { if (j) jSave(null); return; }
+  $("jText").textContent = `${open.length} prodotti su ${j.items.length} (categoria ${j.cat}) non risultano ancora cambiati sul sito: ` + open.map(i => i.name).slice(0, 6).join(", ") + (open.length > 6 ? "…" : "") + ". Quelli «inviati» sono in coda e si aggiornano da soli appena il sistema è acceso.";
+  $("jResume").classList.toggle("hide", !open.some(i => i.st === "todo"));
+}
+$("jCopy").onclick = async () => { const t = jReport(jLoad()); $("jBox").value = t; $("jBox").classList.remove("hide"); try{ await Promise.race([navigator.clipboard.writeText(t), new Promise((_, no) => setTimeout(no, 1500))]); }catch(e){ $("jBox").select(); } };
+$("jClear").onclick = () => { if (confirm("Cancellare il promemoria?")){ jSave(null); jShow(); } };
+$("jResume").onclick = () => {
+  const j = jLoad(); const todo = j.items.filter(i => i.st === "todo");
+  // riparto dai prezzi ATTUALI del sito: quelli gia' al valore voluto sono fatti
+  plan = []; todo.forEach(i => { const p = products.find(x => x.id === i.id); if (!p) return;
+    if (Number(p.reg) === Number(i.nr) && (p.sale === "" ? "" : Number(p.sale)) === (i.ns === "" ? "" : Number(i.ns))) { i.st = "ok"; return; }
+    plan.push({p, nr:Number(i.nr), ns: i.ns === "" ? "" : Number(i.ns)}); });
+  jSave(j); jShow();
+  if (!plan.length){ alert("Questi prodotti risultano già a posto."); return; }
+  if (plan.length > remaining()){ alert(`Ne restano ${plan.length} da inviare ma in questo accesso ti restano ${remaining()} modifiche: esci, rientra e riprova.`); return; }
+  cat = j.cat; resumeJ = true; $("revText").innerHTML = `Riprendo il lavoro lasciato a metà: <b>${plan.length}</b> prodotti (categoria <b>${esc(cat)}</b>).`;
+  say("rMsg","",""); $("bar").classList.add("hide"); ["publish","cancelRev"].forEach(x => { $(x).classList.remove("hide"); $(x).disabled = false; }); $("doneBtn").classList.add("hide");
+  $("vMain").classList.add("hide"); $("vReview").classList.remove("hide"); window.scrollTo(0,0);
+};
+let resumeJ = false;
+
 $("publish").onclick = async () => {
-  const items = plan.slice(); $("publish").disabled = $("cancelRev").disabled = true;
+  const items = plan.slice();
+  let J = resumeJ ? jLoad() : {at:Date.now(), cat, items:items.map(it => ({id:it.p.id, name:it.p.name, reg:it.p.reg, sale:it.p.sale, nr:fmt2(it.nr), ns: it.ns === "" ? "" : fmt2(it.ns), st:"todo"}))};
+  resumeJ = false; jSave(J);
+  const rl0 = ($("val").value.trim() && !$("boxRule").classList.contains("hide") && !J.rule) ? ($("mode").selectedOptions[0].textContent.replace("…", $("val").value.trim())) : (J.rule || "prezzi scritti a mano"); J.rule = rl0; jSave(J);
+  const jSet = (id, st) => { const x = J.items.find(i => i.id === id); if (x){ x.st = st; jSave(J); } }; $("publish").disabled = $("cancelRev").disabled = true;
   $("bar").classList.remove("hide"); const bar = n => { $("barI").style.width = Math.round(100 * n / items.length) + "%"; };
   say("rMsg","wait","Preparo l'invio…"); bar(0);
   const before = {};
@@ -282,29 +329,32 @@ $("publish").onclick = async () => {
   for (const it of items){
     say("rMsg","wait",`Invio ${sent + 1} di ${items.length}: ${it.p.name}… non chiudere la pagina.`);
     const req = {kind:"product", id:it.p.id, prices:{regular_price:fmt2(it.nr), sale_price: it.ns === "" ? "" : fmt2(it.ns), price_ack:false, seen_regular:it.p.reg, seen_sale:it.p.sale}};
+    req.batch = {id:J.at + "-" + J.items.length, n:J.items.findIndex(x => x.id === it.p.id) + 1, total:J.items.length, cat:J.cat, rule: rl0};
     if (before[it.p.id]) req.expect_modified = before[it.p.id];
     let ok = false;
     try{ ok = await sendOne(req); }catch(e){ say("rMsg","err","La sessione e' scaduta: torna al menu e accedi di nuovo."); break; }
     if (!ok){ failed.push(it); break; }
-    sent++; bar(sent);
+    sent++; bar(sent); jSet(it.p.id, "sent");
     const r = await MNP.countAction();
     if (r.closed){ closed = true; break; }
     await wait(1200);                       // un file di coda per volta, in ordine
   }
-  if (failed.length){ say("rMsg","err",`Mi fermo: non sono riuscito a inviare «${failed[0].p.name}». Hai inviato ${sent} prodotti su ${items.length}; controlla internet e riprova con gli altri.`); $("publish").disabled = $("cancelRev").disabled = false; return; }
+  if (failed.length){ jShow(); say("rMsg","err",`Mi fermo: non sono riuscito a inviare «${failed[0].p.name}». Hai inviato ${sent} prodotti su ${items.length}; controlla internet e riprova con gli altri.`); $("publish").disabled = $("cancelRev").disabled = false; return; }
   // controllo sul sito vero: la data di modifica del prodotto cambia quando il telefono scrive
   const done = new Set(); const t0 = Date.now();
-  while (done.size < sent && Date.now() - t0 < 240000){
-    say("rMsg","wait",`Inviati ${sent} prodotti. Aspetto che il sito si aggiorni: fatti ${done.size} su ${sent}…`);
+  while (done.size < sent && Date.now() - t0 < 720000){
+    say("rMsg","wait",`Inviati ${sent} prodotti. Aspetto che il sito si aggiorni (il sistema controlla la coda ogni tanto: può servire anche qualche minuto): fatti ${done.size} su ${sent}…`);
     await wait(6000);
-    await Promise.all(items.slice(0, sent).filter(it => !done.has(it.p.id)).map(async it => { try{ const m = await modifiedOf(it.p.id); if (before[it.p.id] && m !== before[it.p.id]) done.add(it.p.id); }catch(e){} }));
+    await Promise.all(items.slice(0, sent).filter(it => !done.has(it.p.id)).map(async it => { try{ const m = await modifiedOf(it.p.id); if (before[it.p.id] && m !== before[it.p.id]){ done.add(it.p.id); jSet(it.p.id, "ok"); } }catch(e){} }));
   }
   ["publish","cancelRev"].forEach(x => $(x).classList.add("hide")); $("doneBtn").classList.remove("hide");
   if (done.size >= sent) say("rMsg","ok",`✅ Fatto! ${sent} prezzi cambiati sul sito.` + (closed ? " Hai raggiunto il numero massimo di modifiche: per continuare esci e rientra." : ""));
-  else say("rMsg","wait",`Inviati ${sent} prodotti, il sito ne ha già aggiornati ${done.size}. Gli altri sono al sicuro in coda e si aggiornano da soli (anche se il sistema è spento per un momento): NON rifare l'operazione. Se tra qualche minuto non cambiano, avvisa Marco.` + (closed ? " Hai raggiunto il numero massimo di modifiche." : ""));
+  else say("rMsg","wait",`Inviati ${sent} prodotti, il sito ne ha già aggiornati ${done.size}. Gli altri sono al sicuro in coda e si aggiornano da soli (anche se il sistema è spento per un momento): NON rifare l'operazione. Controlla il sito tra 10-15 minuti; se non sono cambiati, avvisa Marco: il lavoro resta salvato qui e comparirà come «lavoro lasciato a metà».` + (closed ? " Hai raggiunto il numero massimo di modifiche." : ""));
+  jShow();
   if (closed) setTimeout(() => location.replace("index.html?msg=limite"), 8000);
 };
 
+jShow();
 init();
 </script>
 </body>
