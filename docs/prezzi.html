@@ -40,7 +40,7 @@ input[type=text],select{width:100%;font:inherit;padding:12px;border:1px solid va
 .row .pr .new{font-weight:600}
 .row.skip .pr .new{color:var(--err);font-weight:500;white-space:normal;font-size:14px}
 .row.off{opacity:.45}
-.row .ne{width:92px;padding:6px 8px;text-align:right;font-weight:600}
+.row .ne{width:80px;padding:6px 8px;text-align:right;font-weight:600}
 .row .ne.man{border-color:var(--chg);border-width:2px}
 .msg{margin:14px 0;padding:14px;border-radius:10px;display:none;font-weight:500}
 .msg.ok{display:block;background:rgba(46,125,79,.12);color:var(--ok)}
@@ -48,6 +48,9 @@ input[type=text],select{width:100%;font:inherit;padding:12px;border:1px solid va
 .msg.wait{display:block;background:rgba(180,137,124,.15)}
 .bar{height:10px;border-radius:6px;background:var(--line);overflow:hidden;margin-top:10px}
 .bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .3s}
+.tip{margin:14px 0 0;padding:12px 14px;border-radius:10px;border-left:6px solid var(--rose);background:rgba(180,137,124,.2);font-size:17px;font-weight:500;line-height:1.4}
+.tip b{color:var(--rose)}
+.tip em{font-style:normal;display:block;margin-top:4px;font-weight:400}
 .hide{display:none!important}
 </style>
 </head>
@@ -60,6 +63,7 @@ input[type=text],select{width:100%;font:inherit;padding:12px;border:1px solid va
     <div class="step"><h2>1. Categoria</h2>
       <div class="chips" id="cats"></div>
       <div class="msg" id="catMsg"></div>
+      <div class="tip"><b>💡 Cosa fa:</b> scegli il gruppo di prodotti da modificare. Tra parentesi trovi quanti prodotti ci sono.<em>Esempio: tocca «SMALTO GEL» per lavorare solo sugli smalti gel.</em></div>
     </div>
 
     <div class="step hide" id="boxRule"><h2>2. Come cambiare il prezzo</h2>
@@ -71,21 +75,26 @@ input[type=text],select{width:100%;font:inherit;padding:12px;border:1px solid va
             <option value="eur_up">Aumenta di … €</option>
             <option value="eur_down">Diminuisci di … €</option>
             <option value="set">Metti lo stesso prezzo a tutti: … €</option>
+            <option value="sale_pct">Metti in SCONTO del … % (prezzo normale barrato)</option>
+            <option value="sale_set">Metti in SCONTO a prezzo fisso: … €</option>
+            <option value="sale_off">Togli lo sconto (torna il prezzo normale)</option>
           </select></div>
         <div><label for="val" id="valLbl">Quanto (%)</label><input type="text" id="val" inputmode="decimal" autocomplete="off" placeholder="per esempio 10"></div>
       </div>
-      <p class="hint" id="ruleNote"></p>
+      <div class="tip" id="ruleNote"></div>
     </div>
 
     <div class="step hide" id="boxList"><h2>3. Prodotti</h2>
       <button class="btn alt small" id="selAll" type="button">Scegli tutti</button><button class="btn alt small" id="selNone" type="button">Togli tutti</button>
+      <div class="tip"><b>💡 Cosa fa:</b> sono i prodotti della categoria. Vedi il prezzo di prima, una freccia e il prezzo nuovo. Togli la spunta ai prodotti che NON vuoi cambiare. Nelle caselle puoi scrivere a mano il prezzo di un solo prodotto (la seconda casella è il prezzo scontato).<em>Esempio: prezzo 6,99 → scrivi 1,99 nella casella «scontato»: sul sito si vedrà 6,99 barrato e 1,99.</em></div>
       <p class="hint" id="listNote" style="margin:10px 0 0"></p>
       <div class="rows" id="rows"></div>
     </div>
 
     <div class="step hide" id="boxGo">
       <div class="msg" id="goMsg"></div>
-      <button class="btn" id="toReview" type="button">Controlla e conferma</button>
+      <div class="tip"><b>💡 Cosa fa:</b> ti mostra un riassunto e ti chiede conferma. Finché non confermi, sul sito non cambia niente.<em>Esempio: «Stai per cambiare il prezzo di 12 prodotti» → premi «Conferma» e partono uno per uno.</em></div>
+      <button class="btn" id="toReview" type="button" style="margin-top:14px">Controlla e conferma</button>
     </div>
   </section>
 
@@ -116,7 +125,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 const r2 = x => Math.round((x + Number.EPSILON) * 100) / 100;
 const PRICE_MAX = 9999.99, JUMP = 0.5;
 
-let products = [], cat = null, plan = [], ov = {};   // ov: prezzi scritti a mano per singolo prodotto
+let products = [], cat = null, plan = [], ov = {}, ovs = {};   // ov: prezzi scritti a mano per singolo prodotto
 
 // ---- quanti prodotti si possono cambiare ancora in questa sessione (il telefono conta una modifica per prodotto)
 function remaining(){ const s = MNP.get(); return s ? Math.max(0, MNP.MAX_ACTIONS - s.actions) : 0; }
@@ -124,6 +133,7 @@ function remaining(){ const s = MNP.get(); return s ? Math.max(0, MNP.MAX_ACTION
 // ---- calcolo del nuovo prezzo di un prodotto secondo la regola scelta (null = niente da cambiare; {skip} = non si puo')
 function rule(){
   const mode = $("mode").value, raw = $("val").value.trim().replace(",", ".");
+  if (mode === "sale_off") return {mode, v:0};
   if (!/^\d{1,5}(\.\d{1,2})?$/.test(raw) || Number(raw) <= 0) return null;
   return {mode, v: Number(raw)};
 }
@@ -136,25 +146,31 @@ function compute(p, rl){
     case "eur_up":   nr = reg + rl.v; ns = sale == null ? null : sale + rl.v; break;
     case "eur_down": nr = reg - rl.v; ns = sale == null ? null : sale - rl.v; break;
     case "set":      nr = rl.v; break;                                   // l'offerta non si tocca
+    case "sale_pct": nr = reg; ns = reg * (1 - rl.v/100); if (rl.v >= 100) return {skip:"lo sconto deve essere sotto il 100%"}; break;
+    case "sale_set": nr = reg; ns = rl.v; break;
+    case "sale_off": nr = reg; ns = null; if (sale == null) return {skip:"non e' in sconto"}; break;
   }
   nr = r2(nr); if (ns != null) ns = r2(ns);
   const out = {reg:nr, sale: ns == null ? "" : ns};
   if (!(nr > 0) || nr > PRICE_MAX) return {skip:"prezzo non valido (" + eur(nr) + ")"};
-  if (ns != null && !(ns > 0 && ns < nr)) return {skip:"l'offerta non starebbe più sotto il prezzo"};
+  if (ns != null && !(ns > 0 && ns < nr)) return {skip: rl.mode.startsWith("sale") ? "il prezzo scontato (" + eur(ns) + ") non e' sotto il prezzo normale" : "l'offerta non starebbe più sotto il prezzo"};
   if (nr === reg && (ns ?? "") === (sale ?? "")) return {skip:"resta uguale"};
-  if (Math.abs(nr - reg) / reg > JUMP) return {skip:"cambia di più del 50%: da fare a mano"};
+  if (!rl.mode.startsWith("sale") && Math.abs(nr - reg) / reg > JUMP) return {skip:"cambia di più del 50%: da fare a mano"};
   return out;
 }
 
 // prezzo scritto a mano su un singolo prodotto (l'offerta resta com'e', se c'e')
-function manual(p, raw){
-  const v = raw.replace(",", ".");
-  if (!/^\d{1,4}(\.\d{1,2})?$/.test(v) || Number(v) <= 0) return {skip:"prezzo non valido (esempio: 14,99)"};
-  const nr = r2(Number(v)), reg = Number(p.reg), sale = p.sale === "" ? null : Number(p.sale);
-  if (sale != null && sale >= nr) return {skip:"l'offerta non starebbe più sotto il prezzo"};
-  if (nr === reg) return {skip:"resta uguale"};
+function manual(p, rawReg, rawSale){
+  const num = v => { v = String(v).trim().replace(",", "."); return /^\d{1,4}(\.\d{1,2})?$/.test(v) && Number(v) > 0 ? r2(Number(v)) : null; };
+  const reg = Number(p.reg), sale = p.sale === "" ? null : Number(p.sale);
+  const nr = rawReg === undefined ? reg : num(rawReg);
+  if (nr == null) return {skip:"prezzo non valido (esempio: 14,99)"};
+  let ns = sale;
+  if (rawSale !== undefined){ ns = num(rawSale); if (ns == null) return {skip:"prezzo scontato non valido (esempio: 1,99)"}; }
+  if (ns != null && ns >= nr) return {skip:"il prezzo scontato deve essere sotto il prezzo normale"};
+  if (nr === reg && (ns ?? "") === (sale ?? "")) return {skip:"resta uguale"};
   if (Math.abs(nr - reg) / reg > JUMP) return {skip:"cambia di più del 50%: da fare da «Cambia un prodotto»"};
-  return {reg:nr, sale: sale == null ? "" : sale};
+  return {reg:nr, sale: ns == null ? "" : ns};
 }
 
 // ---- schermata 1: categorie
@@ -177,18 +193,28 @@ function pickCat(k, btn){
 }
 
 // ---- schermata 2-3: regola e lista con anteprima
-const LABELS = {pct_up:["Quanto (%)","per esempio 10"], pct_down:["Quanto (%)","per esempio 10"], eur_up:["Quanto (€)","per esempio 1,50"], eur_down:["Quanto (€)","per esempio 1,50"], set:["Nuovo prezzo (€)","per esempio 12,90"]};
+const LABELS = {pct_up:["Quanto (%)","per esempio 10"], pct_down:["Quanto (%)","per esempio 10"], eur_up:["Quanto (€)","per esempio 1,50"], eur_down:["Quanto (€)","per esempio 1,50"], set:["Nuovo prezzo (€)","per esempio 12,90"], sale_pct:["Sconto (%)","per esempio 20"], sale_set:["Prezzo scontato (€)","per esempio 1,99"], sale_off:["",""]};
 function recalc(rebuild){
   const [lbl, ph] = LABELS[$("mode").value]; $("valLbl").textContent = lbl; $("val").placeholder = ph;
-  $("ruleNote").textContent = $("mode").value === "set" ? "Cambia il prezzo normale; i prezzi in offerta restano come sono."
-    : "Cambia sia il prezzo normale sia quello in offerta (dove c'è). I prezzi vengono arrotondati al centesimo.";
+  $("val").classList.toggle("hide", $("mode").value === "sale_off"); $("valLbl").classList.toggle("hide", $("mode").value === "sale_off");
+  const EX = {
+    pct_up:"Aumenta tutti i prezzi di una percentuale.<em>Esempio: «Aumenta del 10 %» → un prodotto da 10,00 € passa a 11,00 €.</em>",
+    pct_down:"Abbassa tutti i prezzi di una percentuale (senza barrato: è il nuovo prezzo normale).<em>Esempio: «Diminuisci del 10 %» → da 10,00 € a 9,00 €.</em>",
+    eur_up:"Aggiunge la stessa cifra a tutti i prezzi.<em>Esempio: «Aumenta di 1,50 €» → da 10,00 € a 11,50 €.</em>",
+    eur_down:"Toglie la stessa cifra a tutti i prezzi (senza barrato).<em>Esempio: «Diminuisci di 1,50 €» → da 10,00 € a 8,50 €.</em>",
+    set:"Tutti i prodotti scelti avranno lo stesso prezzo normale.<em>Esempio: «12,90» → tutti costeranno 12,90 €.</em>",
+    sale_pct:"METTE IN SCONTO: il prezzo di prima resta ma compare barrato, e il cliente vede il prezzo scontato (come in WooCommerce).<em>Esempio: sconto 20 % su un prodotto da 10,00 € → 10,00 € barrato e 8,00 €.</em>",
+    sale_set:"METTE IN SCONTO tutti i prodotti allo stesso prezzo: il prezzo di prima resta barrato.<em>Esempio: «1,99» su un prodotto da 6,99 € → 6,99 € barrato e 1,99 €.</em>",
+    sale_off:"TOGLIE LO SCONTO: sparisce il prezzo barrato e il prodotto torna al prezzo normale.<em>Esempio: 6,99 € barrato e 1,99 € → torna a 6,99 €.</em>"};
+  $("ruleNote").innerHTML = "<b>💡 Cosa fa:</b> " + EX[$("mode").value] + ($("mode").value.startsWith("sale") || $("mode").value === "set" ? "" : "<em>Se un prodotto è già in sconto, cambia anche il suo prezzo scontato.</em>");
   const rl = rule(), list = products.filter(p => (p.cats || ["Senza categoria"]).includes(cat));
   if (rebuild){
-    ov = {}; $("rows").innerHTML = "";
+    ov = {}; ovs = {}; $("rows").innerHTML = "";
     list.forEach(p => {
       const d = document.createElement("div"); d.className = "row"; d.dataset.id = p.id;
-      d.innerHTML = `<input type="checkbox" checked aria-label="Scegli ${esc(p.name)}"><div class="nm"><b>${esc(p.name)}</b><span class="why"></span></div><div class="pr"><span class="old"></span> → <input type="text" class="ne" inputmode="decimal" autocomplete="off" aria-label="Nuovo prezzo di ${esc(p.name)}"> €<div class="sk"></div></div>`;
-      d.querySelector(".ne").oninput = e => { const v = e.target.value.trim(); if (v === "") delete ov[p.id]; else ov[p.id] = v; recalc(false); };
+      d.innerHTML = `<input type="checkbox" checked aria-label="Scegli ${esc(p.name)}"><div class="nm"><b>${esc(p.name)}</b><span class="why"></span></div><div class="pr"><span class="old"></span> → <input type="text" class="ne" inputmode="decimal" autocomplete="off" aria-label="Nuovo prezzo di ${esc(p.name)}"> € <span class="hint">scontato:</span> <input type="text" class="ne ns" inputmode="decimal" autocomplete="off" placeholder="nessuno" aria-label="Prezzo scontato di ${esc(p.name)}"> €<div class="sk"></div></div>`;
+      d.querySelector(".ns").oninput = e => { const v = e.target.value.trim(); if (v === "") delete ovs[p.id]; else ovs[p.id] = v; recalc(false); };
+      d.querySelector(".ne:not(.ns)").oninput = e => { const v = e.target.value.trim(); if (v === "") delete ov[p.id]; else ov[p.id] = v; recalc(false); };
       d.querySelector("input").onchange = () => recalc(false);
       $("rows").appendChild(d);
     });
@@ -198,11 +224,13 @@ function recalc(rebuild){
     const p = list.find(x => String(x.id) === d.dataset.id), on = d.querySelector("input").checked;
     const old = p.sale ? `<s>${eur(p.reg)}</s> <b>${eur(p.sale)}</b>` : eur(p.reg);
     let res = rl ? compute(p, rl) : null;
-    if (ov[p.id] !== undefined) res = manual(p, ov[p.id]);
+    if (ov[p.id] !== undefined || ovs[p.id] !== undefined) res = manual(p, ov[p.id], ovs[p.id]);
     d.classList.toggle("off", !on); d.classList.toggle("skip", !!(res && res.skip));
     d.querySelector(".old").innerHTML = old;
-    const ne = d.querySelector(".ne"); ne.classList.toggle("man", ov[p.id] !== undefined);
-    if (ov[p.id] === undefined && document.activeElement !== ne) ne.value = res && !res.skip ? String(res.reg.toFixed(2)).replace(".", ",") : (res ? "" : "");
+    const ne = d.querySelector(".ne:not(.ns)"), nsE = d.querySelector(".ns"); ne.classList.toggle("man", ov[p.id] !== undefined); nsE.classList.toggle("man", ovs[p.id] !== undefined);
+    const f2 = x => String(Number(x).toFixed(2)).replace(".", ",");
+    if (ov[p.id] === undefined && document.activeElement !== ne) ne.value = res && !res.skip ? f2(res.reg) : "";
+    if (ovs[p.id] === undefined && document.activeElement !== nsE) nsE.value = res && !res.skip && res.sale !== "" ? f2(res.sale) : "";
     d.querySelector(".sk").innerHTML = res && res.skip ? esc(res.skip) : "";
     d.querySelector(".why").textContent = "";
     if (on && res && !res.skip) plan.push({p, nr:res.reg, ns:res.sale});
