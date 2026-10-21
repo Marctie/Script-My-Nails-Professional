@@ -134,7 +134,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 const r2 = x => Math.round((x + Number.EPSILON) * 100) / 100;
 const PRICE_MAX = 9999.99, JUMP = 0.5;
 
-let products = [], cat = null, plan = [], ov = {}, ovs = {};   // ov: prezzi scritti a mano per singolo prodotto
+let stale = new Set(), staleErr = false, products = [], cat = null, plan = [], ov = {}, ovs = {};   // ov: prezzi scritti a mano per singolo prodotto
 
 // ---- quanti prodotti si possono cambiare ancora in questa sessione (il telefono conta una modifica per prodotto)
 function remaining(){ const s = MNP.get(); return s ? Math.max(0, MNP.MAX_ACTIONS - s.actions) : 0; }
@@ -147,6 +147,7 @@ function rule(){
   return {mode, v: Number(raw)};
 }
 function compute(p, rl){
+  if (stale.has(p.id)) return {skip:"modificato da poco: prezzo da ricontrollare, riprova tra qualche minuto"};
   const reg = Number(p.reg), sale = p.sale === "" ? null : Number(p.sale);
   let nr, ns = sale;
   switch (rl.mode){
@@ -170,6 +171,7 @@ function compute(p, rl){
 
 // prezzo scritto a mano su un singolo prodotto (l'offerta resta com'e', se c'e')
 function manual(p, rawReg, rawSale){
+  if (stale.has(p.id)) return {skip:"modificato da poco: prezzo da ricontrollare, riprova tra qualche minuto"};
   const num = v => { v = String(v).trim().replace(",", "."); return /^\d{1,4}(\.\d{1,2})?$/.test(v) && Number(v) > 0 ? r2(Number(v)) : null; };
   const reg = Number(p.reg), sale = p.sale === "" ? null : Number(p.sale);
   const nr = rawReg === undefined ? reg : num(rawReg);
@@ -187,6 +189,17 @@ async function init(){
   try{
     const c = await getJSON("data/catalogo.json");
     products = c.products.filter(p => p.type === "simple" && p.reg !== "");
+    // controllo contro il sito vero: prodotti modificati DOPO la copia dei prezzi = prezzo da non fidarsi
+    try{
+      const gen = new Date(c.generated_utc ? c.generated_utc + "Z" : c.generated);
+      for (let pg = 1; pg <= 6; pg++){
+        const list = await getJSON(`${API}/wp/v2/product?per_page=100&page=${pg}&orderby=modified&order=desc&_fields=id,modified_gmt`);
+        list.forEach(x => { if (new Date(x.modified_gmt + "Z") > gen) stale.add(x.id); });
+        if (list.length < 100 || new Date(list[list.length - 1].modified_gmt + "Z") <= gen) break;
+      }
+    }catch(e){ staleErr = true; }
+    if (staleErr) say("catMsg","err","Non riesco a controllare i prezzi sul sito vero: per sicurezza non cambio niente. Ricarica la pagina tra poco.");
+    else if (stale.size) say("catMsg","wait",`${stale.size} prodotti sono stati modificati da poco: i loro prezzi sono segnati in rosso e non si cambiano finche' il catalogo non si aggiorna (qualche minuto).`);
   }catch(e){ say("catMsg","err","Non riesco a leggere l'elenco dei prodotti. Riprova tra poco."); return; }
   const counts = {};
   products.forEach(p => (p.cats || ["Senza categoria"]).forEach(k => counts[k] = (counts[k]||0) + 1));
@@ -253,6 +266,7 @@ $("selAll").onclick = () => { document.querySelectorAll("#rows input").forEach(i
 $("selNone").onclick = () => { document.querySelectorAll("#rows input").forEach(i => i.checked = false); recalc(false); };
 
 $("toReview").onclick = () => {
+  if (staleErr){ say("goMsg","err","Non riesco a controllare i prezzi sul sito vero: ricarica la pagina e riprova."); return; }
   if (!plan.length){ say("goMsg","err","Nessun prodotto da cambiare con queste scelte."); return; }
   const rem = remaining();
   if (plan.length > rem){
