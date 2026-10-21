@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Cambia i prezzi in blocco</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F7F1EB;--ink:#1A1A1A;--rose:#B4897C;--line:#E0D4C8;--card:#fff;--ok:#2e7d4f;--err:#b3362b;--chg:#e9c46a}
+@media(prefers-color-scheme:dark){:root{--bg:#1d1a18;--ink:#f1e9e2;--line:#43392f;--card:#27221f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Jost',system-ui,sans-serif;font-size:18px;line-height:1.45}
+.wrap{max-width:860px;margin:0 auto;padding:20px 16px 70px}
+h1{font-size:28px;margin:8px 0 4px}
+.lead{margin:0 0 18px;opacity:.8}
+.hint{font-weight:300;font-size:15px;opacity:.7}
+.step{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:16px 0}
+.step h2{margin:0 0 12px;font-size:20px}
+label{display:block;font-weight:500;margin:14px 0 4px}
+input[type=text],select{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+.btn{font:inherit;font-weight:600;border:0;border-radius:12px;padding:15px 22px;cursor:pointer;background:var(--ink);color:var(--bg);width:100%}
+.btn.alt{background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:500;margin-top:10px}
+.btn.small{width:auto;padding:8px 14px;font-size:16px;margin:0 6px 0 0}
+.btn[disabled]{opacity:.5;cursor:wait}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:inherit;font-weight:500;padding:10px 14px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--ink);cursor:pointer}
+.chip.on{background:var(--ink);color:var(--bg)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:520px){.grid2{grid-template-columns:1fr}}
+.rows{margin:10px 0 0}
+.row{display:flex;gap:10px;align-items:center;border-bottom:1px solid var(--line);padding:9px 0}
+.row input{width:22px;height:22px;flex:none}
+.row .nm{flex:1;min-width:0}
+.row .nm b{font-weight:500;display:block}
+.row .nm span{font-size:14px;opacity:.65}
+.row .pr{text-align:right;white-space:nowrap}
+.row .pr s{opacity:.55}
+.row .pr .new{font-weight:600}
+.row.skip .pr .new{color:var(--err);font-weight:500;white-space:normal;font-size:14px}
+.row.off{opacity:.45}
+.row .ne{width:92px;padding:6px 8px;text-align:right;font-weight:600}
+.row .ne.man{border-color:var(--chg);border-width:2px}
+.msg{margin:14px 0;padding:14px;border-radius:10px;display:none;font-weight:500}
+.msg.ok{display:block;background:rgba(46,125,79,.12);color:var(--ok)}
+.msg.err{display:block;background:rgba(179,54,43,.12);color:var(--err)}
+.msg.wait{display:block;background:rgba(180,137,124,.15)}
+.bar{height:10px;border-radius:6px;background:var(--line);overflow:hidden;margin-top:10px}
+.bar i{display:block;height:100%;width:0;background:var(--ok);transition:width .3s}
+.hide{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Cambia i prezzi in blocco</h1>
+  <p class="lead">Scegli una categoria, scegli i prodotti e di quanto cambiare il prezzo. Vedi sempre prima il risultato; ogni prezzo viene poi cambiato uno per uno.</p>
+
+  <section id="vMain">
+    <div class="step"><h2>1. Categoria</h2>
+      <div class="chips" id="cats"></div>
+      <div class="msg" id="catMsg"></div>
+    </div>
+
+    <div class="step hide" id="boxRule"><h2>2. Come cambiare il prezzo</h2>
+      <div class="grid2">
+        <div><label for="mode">Cosa vuoi fare?</label>
+          <select id="mode">
+            <option value="pct_up">Aumenta del … %</option>
+            <option value="pct_down">Diminuisci del … %</option>
+            <option value="eur_up">Aumenta di … €</option>
+            <option value="eur_down">Diminuisci di … €</option>
+            <option value="set">Metti lo stesso prezzo a tutti: … €</option>
+          </select></div>
+        <div><label for="val" id="valLbl">Quanto (%)</label><input type="text" id="val" inputmode="decimal" autocomplete="off" placeholder="per esempio 10"></div>
+      </div>
+      <p class="hint" id="ruleNote"></p>
+    </div>
+
+    <div class="step hide" id="boxList"><h2>3. Prodotti</h2>
+      <button class="btn alt small" id="selAll" type="button">Scegli tutti</button><button class="btn alt small" id="selNone" type="button">Togli tutti</button>
+      <p class="hint" id="listNote" style="margin:10px 0 0"></p>
+      <div class="rows" id="rows"></div>
+    </div>
+
+    <div class="step hide" id="boxGo">
+      <div class="msg" id="goMsg"></div>
+      <button class="btn" id="toReview" type="button">Controlla e conferma</button>
+    </div>
+  </section>
+
+  <section id="vReview" class="hide">
+    <div class="step"><h2>Controlla e conferma</h2>
+      <p id="revText"></p>
+      <div class="msg" id="rMsg"></div>
+      <div class="bar hide" id="bar"><i id="barI"></i></div>
+      <button class="btn" id="publish" type="button" style="margin-top:14px">Conferma e cambia i prezzi</button>
+      <button class="btn alt" id="cancelRev" type="button">No, torno indietro</button>
+      <button class="btn hide" id="doneBtn" type="button">Ho finito</button>
+    </div>
+  </section>
+</div>
+
+<script src="config.js"></script>
+<script src="utenti.js"></script>
+<script src="sessione.js"></script>
+<script>if (MNP.guard()) MNP.renderBar(document.querySelector(".wrap"));</script>
+<script>
+const SITE = "https://mynailsprofessional.it", API = SITE + "/wp-json";
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const eur = n => (n === "" || n == null) ? "—" : Number(n).toLocaleString("it-IT",{minimumFractionDigits:2,maximumFractionDigits:2}) + " €";
+const say = (id, k, t) => { const m = $(id); m.className = "msg " + (k || ""); m.textContent = t; };
+const getJSON = async url => { const r = await fetch(url + (url.includes("?")?"&":"?") + "t=" + Date.now(), {cache:"no-store"}); if (!r.ok) throw new Error(r.status); return r.json(); };
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const r2 = x => Math.round((x + Number.EPSILON) * 100) / 100;
+const PRICE_MAX = 9999.99, JUMP = 0.5;
+
+let products = [], cat = null, plan = [], ov = {};   // ov: prezzi scritti a mano per singolo prodotto
+
+// ---- quanti prodotti si possono cambiare ancora in questa sessione (il telefono conta una modifica per prodotto)
+function remaining(){ const s = MNP.get(); return s ? Math.max(0, MNP.MAX_ACTIONS - s.actions) : 0; }
+
+// ---- calcolo del nuovo prezzo di un prodotto secondo la regola scelta (null = niente da cambiare; {skip} = non si puo')
+function rule(){
+  const mode = $("mode").value, raw = $("val").value.trim().replace(",", ".");
+  if (!/^\d{1,5}(\.\d{1,2})?$/.test(raw) || Number(raw) <= 0) return null;
+  return {mode, v: Number(raw)};
+}
+function compute(p, rl){
+  const reg = Number(p.reg), sale = p.sale === "" ? null : Number(p.sale);
+  let nr, ns = sale;
+  switch (rl.mode){
+    case "pct_up":   nr = reg * (1 + rl.v/100); ns = sale == null ? null : sale * (1 + rl.v/100); break;
+    case "pct_down": nr = reg * (1 - rl.v/100); ns = sale == null ? null : sale * (1 - rl.v/100); break;
+    case "eur_up":   nr = reg + rl.v; ns = sale == null ? null : sale + rl.v; break;
+    case "eur_down": nr = reg - rl.v; ns = sale == null ? null : sale - rl.v; break;
+    case "set":      nr = rl.v; break;                                   // l'offerta non si tocca
+  }
+  nr = r2(nr); if (ns != null) ns = r2(ns);
+  const out = {reg:nr, sale: ns == null ? "" : ns};
+  if (!(nr > 0) || nr > PRICE_MAX) return {skip:"prezzo non valido (" + eur(nr) + ")"};
+  if (ns != null && !(ns > 0 && ns < nr)) return {skip:"l'offerta non starebbe più sotto il prezzo"};
+  if (nr === reg && (ns ?? "") === (sale ?? "")) return {skip:"resta uguale"};
+  if (Math.abs(nr - reg) / reg > JUMP) return {skip:"cambia di più del 50%: da fare a mano"};
+  return out;
+}
+
+// prezzo scritto a mano su un singolo prodotto (l'offerta resta com'e', se c'e')
+function manual(p, raw){
+  const v = raw.replace(",", ".");
+  if (!/^\d{1,4}(\.\d{1,2})?$/.test(v) || Number(v) <= 0) return {skip:"prezzo non valido (esempio: 14,99)"};
+  const nr = r2(Number(v)), reg = Number(p.reg), sale = p.sale === "" ? null : Number(p.sale);
+  if (sale != null && sale >= nr) return {skip:"l'offerta non starebbe più sotto il prezzo"};
+  if (nr === reg) return {skip:"resta uguale"};
+  if (Math.abs(nr - reg) / reg > JUMP) return {skip:"cambia di più del 50%: da fare da «Cambia un prodotto»"};
+  return {reg:nr, sale: sale == null ? "" : sale};
+}
+
+// ---- schermata 1: categorie
+async function init(){
+  try{
+    const c = await getJSON("data/catalogo.json");
+    products = c.products.filter(p => p.type === "simple" && p.reg !== "");
+  }catch(e){ say("catMsg","err","Non riesco a leggere l'elenco dei prodotti. Riprova tra poco."); return; }
+  const counts = {};
+  products.forEach(p => (p.cats || ["Senza categoria"]).forEach(k => counts[k] = (counts[k]||0) + 1));
+  Object.keys(counts).sort().forEach(k => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "chip"; b.textContent = k + " (" + counts[k] + ")";
+    b.onclick = () => pickCat(k, b); $("cats").appendChild(b);
+  });
+}
+function pickCat(k, btn){
+  cat = k; document.querySelectorAll(".chip").forEach(x => x.classList.toggle("on", x === btn));
+  ["boxRule","boxList","boxGo"].forEach(x => $(x).classList.remove("hide"));
+  recalc(true);
+}
+
+// ---- schermata 2-3: regola e lista con anteprima
+const LABELS = {pct_up:["Quanto (%)","per esempio 10"], pct_down:["Quanto (%)","per esempio 10"], eur_up:["Quanto (€)","per esempio 1,50"], eur_down:["Quanto (€)","per esempio 1,50"], set:["Nuovo prezzo (€)","per esempio 12,90"]};
+function recalc(rebuild){
+  const [lbl, ph] = LABELS[$("mode").value]; $("valLbl").textContent = lbl; $("val").placeholder = ph;
+  $("ruleNote").textContent = $("mode").value === "set" ? "Cambia il prezzo normale; i prezzi in offerta restano come sono."
+    : "Cambia sia il prezzo normale sia quello in offerta (dove c'è). I prezzi vengono arrotondati al centesimo.";
+  const rl = rule(), list = products.filter(p => (p.cats || ["Senza categoria"]).includes(cat));
+  if (rebuild){
+    ov = {}; $("rows").innerHTML = "";
+    list.forEach(p => {
+      const d = document.createElement("div"); d.className = "row"; d.dataset.id = p.id;
+      d.innerHTML = `<input type="checkbox" checked aria-label="Scegli ${esc(p.name)}"><div class="nm"><b>${esc(p.name)}</b><span class="why"></span></div><div class="pr"><span class="old"></span> → <input type="text" class="ne" inputmode="decimal" autocomplete="off" aria-label="Nuovo prezzo di ${esc(p.name)}"> €<div class="sk"></div></div>`;
+      d.querySelector(".ne").oninput = e => { const v = e.target.value.trim(); if (v === "") delete ov[p.id]; else ov[p.id] = v; recalc(false); };
+      d.querySelector("input").onchange = () => recalc(false);
+      $("rows").appendChild(d);
+    });
+  }
+  plan = [];
+  document.querySelectorAll("#rows .row").forEach(d => {
+    const p = list.find(x => String(x.id) === d.dataset.id), on = d.querySelector("input").checked;
+    const old = p.sale ? `<s>${eur(p.reg)}</s> <b>${eur(p.sale)}</b>` : eur(p.reg);
+    let res = rl ? compute(p, rl) : null;
+    if (ov[p.id] !== undefined) res = manual(p, ov[p.id]);
+    d.classList.toggle("off", !on); d.classList.toggle("skip", !!(res && res.skip));
+    d.querySelector(".old").innerHTML = old;
+    const ne = d.querySelector(".ne"); ne.classList.toggle("man", ov[p.id] !== undefined);
+    if (ov[p.id] === undefined && document.activeElement !== ne) ne.value = res && !res.skip ? String(res.reg.toFixed(2)).replace(".", ",") : (res ? "" : "");
+    d.querySelector(".sk").innerHTML = res && res.skip ? esc(res.skip) : "";
+    d.querySelector(".why").textContent = "";
+    if (on && res && !res.skip) plan.push({p, nr:res.reg, ns:res.sale});
+  });
+  const skipped = document.querySelectorAll("#rows .row.skip").length;
+  $("listNote").textContent = rl ? `${plan.length} prodotti da cambiare su ${list.length}` + (skipped ? ` · ${skipped} saltati (vedi motivo in rosso)` : "") : `${list.length} prodotti in questa categoria. Scrivi sopra di quanto cambiare il prezzo, oppure scrivi il prezzo di un singolo prodotto nella sua casella.`;
+}
+$("mode").onchange = () => recalc(false);
+$("val").oninput = () => recalc(false);
+$("selAll").onclick = () => { document.querySelectorAll("#rows input").forEach(i => i.checked = true); recalc(false); };
+$("selNone").onclick = () => { document.querySelectorAll("#rows input").forEach(i => i.checked = false); recalc(false); };
+
+$("toReview").onclick = () => {
+  if (!plan.length){ say("goMsg","err","Nessun prodotto da cambiare con queste scelte."); return; }
+  const rem = remaining();
+  if (plan.length > rem){
+    say("goMsg","err", rem === 0 ? "Per sicurezza la sessione ha raggiunto il numero massimo di modifiche: esci e rientra." :
+      `Per sicurezza si possono fare al massimo ${MNP.MAX_ACTIONS} modifiche per accesso, e te ne restano ${rem}. Togli qualche prodotto dalla lista (ne hai scelti ${plan.length}), fai questo gruppo, poi esci, rientra e fai gli altri.`);
+    return;
+  }
+  say("goMsg","","");
+  $("revText").innerHTML = `Stai per cambiare il prezzo di <b>${plan.length}</b> prodotti della categoria <b>${esc(cat)}</b> (${esc($("mode").selectedOptions[0].textContent.replace("…", $("val").value.trim()))}).<br>Ogni prodotto conta come una modifica (te ne restano ${rem}). Puoi tornare indietro prodotto per prodotto dall'editor «Cambia un prodotto» → «Torna alla versione di prima».`;
+  say("rMsg","",""); $("bar").classList.add("hide");
+  ["publish","cancelRev"].forEach(x => { $(x).classList.remove("hide"); $(x).disabled = false; }); $("doneBtn").classList.add("hide");
+  $("vMain").classList.add("hide"); $("vReview").classList.remove("hide"); window.scrollTo(0,0);
+};
+$("cancelRev").onclick = () => { $("vReview").classList.add("hide"); $("vMain").classList.remove("hide"); };
+$("doneBtn").onclick = () => location.reload();
+
+// ---- invio: una richiesta per prodotto, identica a quella dell'editor «Cambia un prodotto»
+async function sendOne(req){
+  const payload = await MNP.buildPayload({category:"home", product_id:"site", status:"custom", site_edit:req}, req);
+  for (let i = 0; i < 3; i++){
+    try{ const r = await fetch(WORKER_URL, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(MNP.wrap(payload))}); if (r.ok) return true; }catch(e){}
+    await wait(2000*(i+1));
+  }
+  return false;
+}
+let modifiedOf = async id => (await getJSON(`${API}/wp/v2/product/${id}?_fields=modified`)).modified;
+const fmt2 = n => Number(n).toFixed(2);
+
+$("publish").onclick = async () => {
+  const items = plan.slice(); $("publish").disabled = $("cancelRev").disabled = true;
+  $("bar").classList.remove("hide"); const bar = n => { $("barI").style.width = Math.round(100 * n / items.length) + "%"; };
+  say("rMsg","wait","Preparo l'invio…"); bar(0);
+  const before = {};
+  await Promise.all(items.map(async it => { try{ before[it.p.id] = await modifiedOf(it.p.id); }catch(e){ before[it.p.id] = null; } }));
+  let sent = 0, failed = [], closed = false;
+  for (const it of items){
+    say("rMsg","wait",`Invio ${sent + 1} di ${items.length}: ${it.p.name}… non chiudere la pagina.`);
+    const req = {kind:"product", id:it.p.id, prices:{regular_price:fmt2(it.nr), sale_price: it.ns === "" ? "" : fmt2(it.ns), price_ack:false, seen_regular:it.p.reg, seen_sale:it.p.sale}};
+    if (before[it.p.id]) req.expect_modified = before[it.p.id];
+    let ok = false;
+    try{ ok = await sendOne(req); }catch(e){ say("rMsg","err","La sessione e' scaduta: torna al menu e accedi di nuovo."); break; }
+    if (!ok){ failed.push(it); break; }
+    sent++; bar(sent);
+    const r = await MNP.countAction();
+    if (r.closed){ closed = true; break; }
+    await wait(1200);                       // un file di coda per volta, in ordine
+  }
+  if (failed.length){ say("rMsg","err",`Mi fermo: non sono riuscito a inviare «${failed[0].p.name}». Hai inviato ${sent} prodotti su ${items.length}; controlla internet e riprova con gli altri.`); $("publish").disabled = $("cancelRev").disabled = false; return; }
+  // controllo sul sito vero: la data di modifica del prodotto cambia quando il telefono scrive
+  const done = new Set(); const t0 = Date.now();
+  while (done.size < sent && Date.now() - t0 < 240000){
+    say("rMsg","wait",`Inviati ${sent} prodotti. Aspetto che il sito si aggiorni: fatti ${done.size} su ${sent}…`);
+    await wait(6000);
+    await Promise.all(items.slice(0, sent).filter(it => !done.has(it.p.id)).map(async it => { try{ const m = await modifiedOf(it.p.id); if (before[it.p.id] && m !== before[it.p.id]) done.add(it.p.id); }catch(e){} }));
+  }
+  ["publish","cancelRev"].forEach(x => $(x).classList.add("hide")); $("doneBtn").classList.remove("hide");
+  if (done.size >= sent) say("rMsg","ok",`✅ Fatto! ${sent} prezzi cambiati sul sito.` + (closed ? " Hai raggiunto il numero massimo di modifiche: per continuare esci e rientra." : ""));
+  else say("rMsg","wait",`Inviati ${sent} prodotti, il sito ne ha già aggiornati ${done.size}. Gli altri sono al sicuro in coda e si aggiornano da soli (anche se il sistema è spento per un momento): NON rifare l'operazione. Se tra qualche minuto non cambiano, avvisa Marco.` + (closed ? " Hai raggiunto il numero massimo di modifiche." : ""));
+  if (closed) setTimeout(() => location.replace("index.html?msg=limite"), 8000);
+};
+
+init();
+</script>
+</body>
+</html>
