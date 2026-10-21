@@ -29,7 +29,7 @@ def build_catalog(site: str, timeout=60) -> dict:
     site = site.rstrip("/")
     products, page = [], 1
     while True:
-        r = requests.get(f"{site}/wp-json/wc/store/v1/products", params={"per_page": 100, "page": page}, headers=UA, timeout=timeout)
+        r = requests.get(f"{site}/wp-json/wc/store/v1/products", params={"per_page": 100, "page": page, "_": int(time.time() * 1000)}, headers=UA, timeout=timeout)
         r.raise_for_status()
         for p in r.json():
             pr = p.get("prices") or {}
