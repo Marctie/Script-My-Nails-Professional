@@ -196,6 +196,16 @@ async function getCatalog(){
   const {j} = await getJSON("data/catalogo.json"); catalogCache = j; return j;
 }
 
+
+// Controllo contro il sito vero: il catalogo prezzi e' una copia. Se il prodotto e' stato modificato dopo la copia, il prezzo
+// potrebbe essere cambiato: in quel caso NON si propongono modifiche di prezzo (il telefono rifiuterebbe comunque).
+async function priceStale(id){
+  const cat = await getCatalog();
+  const gen = new Date(cat.generated_utc ? cat.generated_utc + "Z" : cat.generated);
+  const {j} = await getJSON(`${API}/wp/v2/product/${id}?_fields=modified_gmt`);
+  return new Date(j.modified_gmt + "Z") > gen;
+}
+
 document.querySelectorAll("#vList .tab").forEach(b => b.onclick = () => {
   document.querySelectorAll("#vList .tab").forEach(x => x.classList.toggle("on", x === b));
   kind = b.dataset.kind; query = ""; $("q").value = ""; loadList(true);
@@ -250,8 +260,9 @@ async function openItem(id){
   try{
     if (kind === "product"){
       let c = null; try{ c = (await getCatalog()).products.find(x => x.id === id) || null; }catch(e){}
+      let stale = false; if (c){ try{ stale = await priceStale(id); }catch(e){ stale = true; } }
       const {j} = await getJSON(`${API}/wp/v2/product/${id}?_fields=id,title,modified,link,content,excerpt`);
-      cur = {kind, id, title:plain(j.title.rendered), link:j.link, modified:j.modified, type:c ? c.type : "unknown",
+      cur = {kind, id, title:plain(j.title.rendered), link:j.link, modified:j.modified, type:(c && !stale) ? c.type : "unknown", stale,
              prices:c ? {reg:c.reg, sale:c.sale} : {reg:"", sale:""},
              fields:[parseHtmlField("short_description", j.excerpt.rendered), parseHtmlField("description", j.content.rendered)],
              gallery:c ? c.imgs.map(i => ({url:i.src, thumb:i.thumb})) : []};
@@ -290,7 +301,7 @@ function buildEditor(){
     $("pReg").value = cur.prices.reg ? cur.prices.reg.replace(".", ",") : ""; $("pSale").value = cur.prices.sale ? cur.prices.sale.replace(".", ",") : "";
     const variable = cur.type !== "simple";
     $("pReg").disabled = $("pSale").disabled = variable;
-    $("priceNote").textContent = cur.type === "unknown" ? "In questo momento non riesco a leggere il prezzo: i testi si possono cambiare, il prezzo no."
+    $("priceNote").textContent = cur.stale ? "Questo prodotto e' stato modificato da poco e il prezzo che vedo potrebbe non essere aggiornato: per sicurezza il prezzo non si cambia adesso. Aspetta qualche minuto, ricarica la pagina (Ctrl+F5) e riprova. I testi si possono cambiare." : cur.type === "unknown" ? "In questo momento non riesco a leggere il prezzo: i testi si possono cambiare, il prezzo no."
       : variable ? "Questo prodotto ha varianti con prezzi diversi: i prezzi non si cambiano da qui." : "Scrivi il prezzo con la virgola, per esempio 14,99.";
     $("ack").checked = false; checkPrice();
   }
