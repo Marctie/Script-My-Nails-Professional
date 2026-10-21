@@ -202,7 +202,8 @@ def describe_request(data: dict) -> list:
         out.append(f"Foto: {old} → nuova foto caricata ({im.get('field')})")
     p = data.get("prices")
     if p:
-        out.append(f"Prezzo: {p.get('seen_regular','?')} → {p.get('regular_price','?')} €  |  offerta: {p.get('seen_sale') or '-'} → {p.get('sale_price') or '-'}")
+        out.append(f"Prezzo: {p.get('seen_regular','?')} → {p.get('regular_price','?')} €  |  offerta: {p.get('seen_sale') or '-'} → {p.get('sale_price') or '-'}"
+                   + ("  🏷️ IN SCONTO" if p.get("sale_price") and not p.get("seen_sale") else "  (sconto tolto)" if p.get("seen_sale") and not p.get("sale_price") else ""))
     return out
 
 
@@ -498,18 +499,64 @@ def process_home_hero(payload: dict) -> bool:
 SITE_BACKUP_DIR = ROOT / "site_editor_backups"
 
 
+_catalog_timer = None
+
+
 def refresh_catalog_async() -> None:
     """Rigenera docs/data/catalogo.json (prezzi e galleria dei prodotti, letti dalla pagina di Miriam) e lo scrive su
-    GitHub solo se e' cambiato. In un thread a parte: un errore qui non deve mai bloccare le modifiche al sito."""
+    GitHub solo se e' cambiato. In un thread a parte: un errore qui non deve mai bloccare le modifiche al sito.
+    Parte 25 s DOPO l'ultima modifica (un blocco di 30 prezzi = un solo aggiornamento) e riprova una volta: subito dopo
+    una scrittura la Store API di WooCommerce puo' ancora dare il prezzo vecchio (visto il 21/10/2026: catalogo fermo al 13/10)."""
+    global _catalog_timer
+
     def _run():
-        try:
-            import catalogo
-            cat = catalogo.build_catalog(os.environ["WC_SITE_URL"])
-            if catalogo.push_catalog(cat, GITHUB_REPO, GITHUB_BRANCH, github_headers()):
-                logger.info(f"Catalogo prodotti aggiornato su GitHub ({cat['count']} prodotti).")
-        except Exception:
-            logger.exception("Aggiornamento del catalogo prodotti non riuscito (ritento alla prossima modifica)")
-    threading.Thread(target=_run, daemon=True).start()
+        for attempt in (1, 2):
+            try:
+                import catalogo
+                cat = catalogo.build_catalog(os.environ["WC_SITE_URL"])
+                if catalogo.push_catalog(cat, GITHUB_REPO, GITHUB_BRANCH, github_headers()):
+                    logger.info(f"Catalogo prodotti aggiornato su GitHub ({cat['count']} prodotti).")
+                    return
+                logger.info(f"Catalogo prodotti: nessuna differenza (tentativo {attempt}).")
+            except Exception:
+                logger.exception("Aggiornamento del catalogo prodotti non riuscito")
+            time.sleep(60)
+    if _catalog_timer is not None:
+        _catalog_timer.cancel()
+    _catalog_timer = threading.Timer(25, _run)
+    _catalog_timer.daemon = True
+    _catalog_timer.start()
+
+
+# Blocchi di prezzi (pagina prezzi.html): ogni prodotto e' una richiesta normale con in piu' req["batch"] = {id, n, total, cat, rule}.
+# Qui si tiene il conto per mandare UN riepilogo su Telegram quando il blocco e' finito.
+_BATCHES: dict = {}
+
+
+def batch_line(data: dict) -> str:
+    b = data.get("batch")
+    if not isinstance(b, dict):
+        return ""
+    return f"📦 Blocco prezzi: prodotto {b.get('n')} di {b.get('total')} · categoria {str(b.get('cat'))[:60]} · regola: {str(b.get('rule'))[:100]}\n"
+
+
+def batch_note(data: dict, uid_name: str, outcome: str, label: str, detail: str = "") -> None:
+    """outcome: ok | skip | fail. Quando il numero di esiti arriva a total manda il riepilogo."""
+    b = data.get("batch")
+    if not isinstance(b, dict) or not b.get("id"):
+        return
+    st = _BATCHES.setdefault(str(b["id"]), {"ok": [], "skip": [], "fail": [], "total": int(b.get("total") or 0),
+                                            "cat": b.get("cat"), "rule": b.get("rule")})
+    st[outcome].append(f"{label}{(' — ' + detail) if detail else ''}")
+    if len(st["ok"]) + len(st["skip"]) + len(st["fail"]) >= st["total"]:
+        _BATCHES.pop(str(b["id"]), None)
+        msg = (f"🏁 BLOCCO PREZZI COMPLETATO — 👤 {uid_name}\n"
+               f"📂 categoria {str(st['cat'])[:60]} · regola: {str(st['rule'])[:100]}\n"
+               f"✅ cambiati: {len(st['ok'])} · ℹ️ senza differenza: {len(st['skip'])} · ⚠️ NON eseguiti: {len(st['fail'])} (su {st['total']})\n"
+               f"🕒 {fmt_t(time.time())}")
+        if st["fail"]:
+            msg += "\n⚠️ Da sistemare a mano:\n" + "\n".join("• " + x for x in st["fail"][:40])
+        notify(msg)
 
 
 def process_site_edit(payload: dict) -> bool:
@@ -528,7 +575,7 @@ def process_site_edit(payload: dict) -> bool:
     kind = data.get("kind")
     kl = {"page": "pagina", "post": "articolo", "product": "prodotto"}.get(kind, str(kind))
     what = describe_request(data) if data.get("action") != "restore" else ["Chiede di tornare alla versione precedente."]
-    notify(f"📥 {name} ha inviato una modifica del SITO — elaboro…\n📄 {kl} #{data.get('id')}\n🕒 {fmt_t(time.time())}\n"
+    notify(f"📥 {name} ha inviato una modifica del SITO — elaboro…\n{batch_line(data)}📄 {kl} #{data.get('id')}\n🕒 {fmt_t(time.time())}\n"
            + "\n".join("• " + w for w in what[:20]))
     wp = se.WP(os.environ["WC_SITE_URL"], WP_USERNAME_HOME, WP_APP_PASSWORD_HOME)
     try:
@@ -547,7 +594,8 @@ def process_site_edit(payload: dict) -> bool:
     except se.EditError as e:
         STATS["rejected"] += 1
         logger.warning(f"Sito: richiesta non eseguita: {e}")
-        notify(f"⚠️ SITO: modifica di {name} NON eseguita — {e}\n📄 {kl} #{data.get('id')}\nIl sito e' rimasto com'era.")
+        notify(f"⚠️ SITO: modifica di {name} NON eseguita — {e}\n{batch_line(data)}📄 {kl} #{data.get('id')}\nIl sito e' rimasto com'era.")
+        batch_note(data, name, "fail", f"{kl} #{data.get('id')}", str(e)[:120])
         _mark_seen(payload)
         return True
     except requests.RequestException as e:
@@ -559,6 +607,7 @@ def process_site_edit(payload: dict) -> bool:
     _mark_seen(payload)
     if not r["changed"]:
         notify(f"ℹ️ SITO: nessuna differenza rispetto a quanto gia' pubblicato ({name}, {kl} #{data.get('id')}), non ho cambiato nulla.")
+        batch_note(data, name, "skip", f"{kl} #{data.get('id')}")
         return True
     STATS["published"] += 1
     record_event({"action": f"sito aggiornato {r['kind']} {r['id']}"})
@@ -569,11 +618,12 @@ def process_site_edit(payload: dict) -> bool:
     counter = record_session_action(uid, f"{kl} «{r.get('title')}»: {n_t} testi, {n_i} foto" + (", prezzo" if data.get("prices") else ""), payload.get("_queued_at"))
     lines = "\n".join("• " + x for x in r["summary"][:40])
     notify(
-        f"✅ SITO AGGIORNATO — 👤 {name}\n📄 {kl} «{r.get('title')}» (#{r['id']})\n🕒 {fmt_t(time.time())}\n{lines}\n"
+        f"✅ SITO AGGIORNATO — 👤 {name}\n{batch_line(data)}📄 {kl} «{r.get('title')}» (#{r['id']})\n🕒 {fmt_t(time.time())}\n{lines}\n"
         f"Controllo pagina pubblica: {'OK' if r.get('public_ok') else 'DA VERIFICARE'}\n{r.get('link')}\n"
         f"Backup: {Path(r['backup']).name}\n🔢 {counter}\n"
         "Per tornare indietro: «Torna alla versione di prima» nella pagina di modifica."
     )
+    batch_note(data, name, "ok", f"«{r.get('title')}» (#{r['id']})")
     return True
 
 

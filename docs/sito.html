@@ -480,7 +480,7 @@ async function fetchFresh(kind, id){
 }
 async function waitFor(check){
   const t0 = Date.now();
-  while (Date.now() - t0 < 180000){ await new Promise(r => setTimeout(r, 8000)); try{ if (check(await fetchFresh(cur.kind, cur.id))) return true; }catch(e){} }
+  while (Date.now() - t0 < 720000){ await new Promise(r => setTimeout(r, 8000)); try{ if (check(await fetchFresh(cur.kind, cur.id))) return true; }catch(e){} }
   return false;
 }
 
@@ -493,7 +493,7 @@ async function doPublish(){
   const ok = await waitFor(m => m !== before);
   b.disabled = c.disabled = false;
   if (ok){ say("rMsg","ok","✅ Fatto! Il sito è aggiornato."); b.classList.add("hide"); c.classList.add("hide"); $("doneBtn").classList.remove("hide"); await afterSuccess(); }
-  else say("rMsg","wait","La tua richiesta è stata inviata ed è al sicuro in coda, ma non vedo ancora la modifica sul sito. Se il sistema è spento per un momento, la modifica viene fatta da sola appena torna attivo: NON serve rifarla. Riguarda tra qualche minuto; se non cambia, avvisa Marco (lui riceve il motivo su Telegram).");
+  else say("rMsg","wait","La tua richiesta è stata inviata ed è al sicuro in coda, ma non vedo ancora la modifica sul sito (il telefono può metterci anche 5-10 minuti). Se il sistema è spento per un momento, la modifica viene fatta da sola appena torna attivo: NON serve rifarla. Riguarda tra qualche minuto; se non cambia, avvisa Marco (lui riceve il motivo su Telegram).");
 }
 $("doneBtn").onclick = () => { cur = null; show("vList"); };
 
