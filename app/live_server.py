@@ -493,6 +493,84 @@ def process_home_hero(payload: dict) -> bool:
     return True
 
 
+# --- Editor delle SCHEDE della Home (titolo "Piu' prodotti..." + caselle con foto) ---
+# Richieste con chiave "home_cards" nel JSON di coda (pagina docs/schede.html). Logica in home_cards.py.
+# Stessa cartella di backup della parte alta ma file separati (*_PRIMA-SCHEDE): i due "Torna alla versione di prima" non si intralciano.
+def process_home_cards(payload: dict) -> bool:
+    """True = richiesta chiusa (ok o rifiutata); False = errore temporaneo, da ritentare. Serve il login (firma + sessione attiva)."""
+    import home_cards as hc
+
+    STATS["requests"] += 1
+    data = payload.get("home_cards") or {}
+    action = data.get("action", "publish")
+    if not payload.get("user"):
+        STATS["rejected"] += 1
+        notify(f"🚫 RICHIESTA RIFIUTATA (schede della Home): arrivata senza login.\n🕒 {fmt_t(time.time())}\nNessuna modifica fatta al sito.")
+        return True
+    uid = authenticate(payload, data, "Schede Home")
+    if not uid:
+        return True
+    name = user_name(uid)
+    if not require_session(uid, "Schede Home", payload.get("_queued_at")):
+        return True
+    if action == "restore":
+        wanted = ["Chiede di tornare alla versione precedente delle schede."]
+    else:
+        cards = data.get("cards") if isinstance(data.get("cards"), list) else []
+        photos = {im.get("card") for im in (data.get("images") or []) if isinstance(im, dict)}
+        wanted = [f"Titolo: «{str(data.get('title', ''))[:60]}»", f"Frase: «{str(data.get('claim', ''))[:90]}»"]
+        for i, c in enumerate(cards):
+            c = c if isinstance(c, dict) else {}
+            lab = " / ".join(x for x in (str(c.get("label_1", ""))[:30], str(c.get("label_2", ""))[:30]) if x)
+            wanted.append(f"Scheda {i + 1}: «{lab}»" + (" + FOTO NUOVA" if i in photos else ""))
+    notify(f"📥 {name} ha inviato una modifica alle SCHEDE della Home — elaboro…\n🕒 {fmt_t(time.time())}\n" + "\n".join("• " + w for w in wanted))
+    wp = he_WP()
+    try:
+        with _home_lock:
+            if action == "restore":
+                r = hc.restore_previous_cards(wp, HOME_BACKUP_DIR)
+                STATS["published"] += 1
+                record_event({"action": "schede home ripristinate"})
+                counter = record_session_action(uid, "Home: schede ripristinate alla versione precedente", payload.get("_queued_at"))
+                notify(f"↩️ SCHEDE DELLA HOME RIPRISTINATE — 👤 {name}\nVersione ripristinata: {r['restored_from']}\n"
+                       + ("\n".join("• " + c for c in r["changes"]) or "(erano gia' uguali)") + f"\n🔢 {counter}")
+                _mark_seen(payload)
+                return True
+            r = hc.publish_cards(wp, HOME_BACKUP_DIR, data)
+    except hc.CardsError as e:
+        STATS["rejected"] += 1
+        logger.warning(f"Schede Home: richiesta non eseguita: {e}")
+        notify(f"⚠️ SCHEDE DELLA HOME: modifica di {name} NON eseguita — {e}\nIl sito e' rimasto com'era.")
+        _mark_seen(payload)
+        return True
+    except requests.RequestException as e:
+        STATS["errors"] += 1
+        logger.exception("Schede Home: errore di rete/WordPress")
+        notify(f"⚠️ SCHEDE DELLA HOME: errore temporaneo ({e}) per la modifica di {name} — ritento automaticamente.")
+        return False
+
+    _mark_seen(payload)
+    if not r["changed"]:
+        notify(f"ℹ️ SCHEDE DELLA HOME: nessuna differenza rispetto a quanto gia' pubblicato ({name}), non ho cambiato nulla.")
+        return True
+    STATS["published"] += 1
+    record_event({"action": "schede home aggiornate", "revision": r.get("revision")})
+    counter = record_session_action(uid, "Home: schede (" + str(len(r["changes"])) + " cambi)", payload.get("_queued_at"))
+    notify(
+        f"✅ SCHEDE DELLA HOME AGGIORNATE — 👤 {name}\n🕒 {fmt_t(time.time())}\n" + "\n".join("• " + c for c in r["changes"]) + "\n"
+        + (f"Foto nuove caricate: {len(r['uploaded'])}\n" if r.get("uploaded") else "")
+        + f"Controllo pagina pubblica: {'OK' if r.get('public_ok') else 'DA VERIFICARE'}\n"
+        f"Revisione WordPress: {r.get('revision')}\nBackup: {Path(r['backup']).name}\n🔢 {counter}\n"
+        "Per tornare indietro: «Torna alla versione di prima» nella pagina delle schede."
+    )
+    return True
+
+
+def he_WP():
+    import home_editor as he
+    return he.WP(os.environ["WC_SITE_URL"], WP_USERNAME_HOME, WP_APP_PASSWORD_HOME)
+
+
 # --- Editor del sito (pagine, articoli, prodotti: testi, foto, prezzi) -------
 # Richieste con chiave "site_edit" nel JSON di coda. Logica in site_editor.py.
 # Qui il codice segreto (HOME_EDITOR_PIN) e' OBBLIGATORIO: senza, ogni richiesta e' rifiutata.
@@ -848,7 +926,7 @@ def github_queue_polling_loop():
                         delete_queue_file(f["path"], f["sha"])
                         _clear_queue_failure(f["name"])
                         continue
-                    if payload.get("category") in EDITOR_CATEGORIES and not any(payload.get(k) is not None for k in ("session_event", "home_hero", "site_edit")):
+                    if payload.get("category") in EDITOR_CATEGORIES and not any(payload.get(k) is not None for k in ("session_event", "home_hero", "home_cards", "site_edit")):
                         logger.warning(f"Voce di coda {f['name']}: richiesta dell'editor priva dei dati utili (scartati dal Worker?), ignorata.")
                         notify("⚠️ My Nails: e' arrivata una richiesta dell'editor SENZA i dati utili (il Worker li ha scartati). "
                                "Ricarica la pagina con Ctrl+F5 e riprova; se persiste avvisa Marco. Nessuna modifica fatta.")
@@ -880,6 +958,24 @@ def github_queue_polling_loop():
                             attempts = _register_queue_failure(f["name"])
                             if attempts >= QUEUE_MAX_ATTEMPTS:
                                 notify(f"❌ My Nails Sito: modifica fallita {attempts} volte, rinuncio. Controlla il sito e riprova.")
+                                delete_queue_file(f["path"], f["sha"])
+                                _clear_queue_failure(f["name"])
+                        continue
+
+                    if payload.get("home_cards") is not None:
+                        try:
+                            success = process_home_cards(payload)
+                        except Exception:
+                            logger.exception("Errore imprevisto nella richiesta (schede home)")
+                            notify("⚠️ SCHEDE DELLA HOME: errore imprevisto nell'elaborazione di una richiesta (dettagli nel log del bot). Ritento; dopo 5 tentativi rinuncio.")
+                            success = False
+                        if success:
+                            delete_queue_file(f["path"], f["sha"])
+                            _clear_queue_failure(f["name"])
+                        else:
+                            attempts = _register_queue_failure(f["name"])
+                            if attempts >= QUEUE_MAX_ATTEMPTS:
+                                notify(f"❌ My Nails Home: modifica delle schede fallita {attempts} volte, rinuncio. Controlla il sito e riprova.")
                                 delete_queue_file(f["path"], f["sha"])
                                 _clear_queue_failure(f["name"])
                         continue

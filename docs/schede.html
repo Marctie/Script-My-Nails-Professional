@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Schede della Home</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&family=Parisienne&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F7F1EB;--ink:#1A1A1A;--rose:#B4897C;--line:#E0D4C8;--card:#fff;--ok:#2e7d4f;--err:#b3362b}
+@media(prefers-color-scheme:dark){:root{--bg:#1d1a18;--ink:#f1e9e2;--line:#43392f;--card:#27221f}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Jost',system-ui,sans-serif;font-size:18px;line-height:1.45}
+.wrap{max-width:820px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:28px;margin:8px 0 4px}
+.lead{margin:0 0 14px;opacity:.85}
+.step{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:16px 0}
+.step h2{margin:0 0 12px;font-size:20px}
+.step h2 .num{display:inline-block;background:var(--rose);color:#fff;border-radius:50%;width:30px;height:30px;line-height:30px;text-align:center;margin-right:8px;font-size:17px}
+label{display:block;font-weight:500;margin:12px 0 4px}
+.hint{font-weight:300;font-size:15px;opacity:.75}
+input[type=text],select{width:100%;font:inherit;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn{font:inherit;font-weight:600;border:0;border-radius:12px;padding:16px 22px;cursor:pointer;background:var(--ink);color:var(--bg);width:100%}
+.btn.alt{background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:500;margin-top:10px}
+.btn.small{width:auto;padding:9px 14px;font-size:15px;margin:0}
+.btn[disabled]{opacity:.5;cursor:wait}
+.msg{margin:14px 0;padding:14px;border-radius:10px;display:none;font-weight:500;white-space:pre-line}
+.msg.ok{display:block;background:rgba(46,125,79,.12);color:var(--ok)}
+.msg.err{display:block;background:rgba(179,54,43,.12);color:var(--err)}
+.msg.wait{display:block;background:rgba(180,137,124,.15)}
+/* ---- editor di una scheda ---- */
+.ed{border:1px solid var(--line);border-radius:12px;padding:14px;margin:14px 0;background:var(--bg)}
+.ed.changed{border-color:var(--rose);box-shadow:0 0 0 2px rgba(180,137,124,.25)}
+.ed-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.ed-head b{font-size:19px}
+.ed-tools{display:flex;gap:6px;flex-wrap:wrap}
+.ed-photo{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.ed-photo img{width:110px;height:110px;object-fit:cover;border-radius:8px;border:1px solid var(--line);background:#fff}
+.ed-photo .pb{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
+details summary{cursor:pointer;margin-top:12px;font-size:15px;opacity:.8}
+/* ---- anteprima: stesse regole della Home vera ---- */
+.pv{--mnp-cream2:#F7F1EB;--mnp-rose:#B4897C;--mnp-line:#E0D4C8;--mnp-gold-d:#A8843F;--mnp-wine:#7B1E2B;
+  background:var(--mnp-cream2);color:#1A1A1A;border-radius:10px;overflow:hidden;border:1px solid var(--line);padding:18px 14px 22px}
+.pv .mnp-rule{display:flex;align-items:center;gap:16px}
+.pv .mnp-rule:before,.pv .mnp-rule:after{content:"";flex:1;height:1px;background:var(--mnp-line)}
+.pv .mnp-script{font-family:'Parisienne','Segoe Script','Brush Script MT',cursive;font-size:clamp(26px,5vw,40px);line-height:1.25;text-align:center}
+.pv .mnp-heart{text-align:center;color:var(--mnp-rose);font-size:14px;line-height:1}
+.pv.xmas .mnp-heart{color:var(--mnp-gold-d);font-size:12px;letter-spacing:.1em}
+.pv .mnp-claim{text-align:center;font-size:12px;letter-spacing:.16em;text-transform:uppercase;margin:12px 0 0}
+.pv .cats{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:18px}
+.pv .mnp-card{position:relative;background:#fff;border:1px solid var(--mnp-line);display:block;flex:0 0 calc((100% - (var(--n) - 1) * 10px) / var(--n));min-width:0}
+.pv .mnp-card img{display:block;width:100%;aspect-ratio:1/1;object-fit:cover;background:#eee}
+.pv .mnp-card .lab{padding:10px 4px 12px;text-align:center}
+.pv .mnp-card .lab span{display:block;font-size:10px;letter-spacing:.14em;text-transform:uppercase;line-height:1.5;overflow-wrap:anywhere}
+.pv .mnp-card .lab .arw{margin-top:6px;font-size:13px;letter-spacing:0}
+.pv .mnp-card .n{position:absolute;top:6px;right:6px;background:var(--rose);color:#fff;border-radius:50%;width:22px;height:22px;line-height:22px;text-align:center;font-size:12px}
+.pv.xmas .mnp-card.cal::before{content:"Novit\00e0";position:absolute;top:6px;left:6px;background:var(--mnp-wine);color:#F3E3C0;font-size:9px;letter-spacing:.18em;text-transform:uppercase;padding:3px 6px}
+@media(max-width:620px){.pv .mnp-card{flex:0 0 calc((100% - 10px) / 2)}}
+.pv-note{font-size:14px;opacity:.7;margin:8px 0 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Schede della Home</h1>
+  <p class="lead">Qui cambi la parte <b>«Più prodotti, più possibilità»</b> della Home: il titolo, la frase e le caselle con la foto (Calendario, Gel costruttori…). Guarda l'anteprima, poi premi <b>Pubblica</b>.</p>
+  <p class="lead"><a href="home.html" style="color:inherit;font-weight:600">Vuoi cambiare la parte in alto (foto grande e scritte)? Vai qui →</a></p>
+
+  <div class="step"><h2><span class="num">1</span>Anteprima</h2>
+    <div class="pv" id="pv"></div>
+    <p class="pv-note">Sul computer le schede stanno tutte su una riga, sul telefono due per riga. Il numerino rosa ti dice quale scheda è.</p>
+  </div>
+
+  <div class="step"><h2><span class="num">2</span>Titolo e frase</h2>
+    <label for="title">Titolo in corsivo</label>
+    <input type="text" id="title" maxlength="40">
+    <label for="claim">Frase sotto il titolo <span class="hint">puoi lasciarla vuota</span></label>
+    <input type="text" id="claim" maxlength="80">
+  </div>
+
+  <div class="step"><h2><span class="num">3</span>Le schede</h2>
+    <p class="hint" style="margin-top:0">Per ogni scheda puoi cambiare foto, scritta e pagina a cui porta. Con le frecce cambi l'ordine.</p>
+    <div id="cards"></div>
+    <button class="btn alt" id="addCard" type="button">+ Aggiungi una scheda</button>
+  </div>
+
+  <div class="step"><h2><span class="num">4</span>Pubblica</h2>
+    <div class="msg" id="msg"></div>
+    <button class="btn" id="publish" type="button">Pubblica sul sito</button>
+    <button class="btn alt" id="restore" type="button">Torna alla versione di prima</button>
+    <p class="hint">Prima di ogni modifica il sito si salva da solo una copia. «Torna alla versione di prima» rimette solo le schede: la parte in alto resta com'è.</p>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="utenti.js"></script>
+<script src="sessione.js"></script>
+<script>if (MNP.guard()) MNP.renderBar(document.querySelector(".wrap"));</script>
+<script>
+"use strict";
+const SITE = "https://mynailsprofessional.it";
+const PAGE_API = SITE + "/wp-json/wp/v2/pages/362?_fields=content.rendered";
+const CATS_API = SITE + "/wp-json/wp/v2/product_cat?per_page=100&_fields=id,name,link,count,parent";
+const MIN_CARDS = 2, MAX_CARDS = 6, MIN_PHOTO_W = 500;
+const POSITIONS = [["50% 15%","Foto spostata in alto"],["50% 30%","Un po' più in alto"],["","Al centro"],["50% 70%","Un po' più in basso"],["50% 85%","Foto spostata in basso"]];
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const clean = s => String(s || "").replace(/\s+/g, " ").trim();
+const norm = s => clean(s).replace(/[‘’‛']/g, "'").replace(/[“”"]/g, '"').toLowerCase();
+const join = c => clean(c.label_1 + " " + c.label_2);
+
+let state = null;        // {title, claim, cards:[{href,img,alt,pos,label_1,label_2,photo,photoName,altAuto}]}
+let original = null;     // copia dei valori letti dal sito (per capire cosa e' cambiato)
+let links = [];          // [{href, name, group}]
+let catalog = [];        // prodotti {name, link, photo}
+let xmas = false, markers = false;
+
+// ------------------------------------------------------------ lettura dal sito
+function parseHome(htmlStr){
+  const d = new DOMParser().parseFromString(htmlStr, "text/html");
+  const mid = d.querySelector(".mnp-mid"), cats = d.querySelectorAll(".mnp-cats a.mnp-card");
+  if (!mid || !cats.length) return null;
+  const out = {title: clean(mid.querySelector(".mnp-script")?.textContent), claim: clean(mid.querySelector(".mnp-claim")?.textContent), cards: []};
+  cats.forEach(a => {
+    const im = a.querySelector(":scope > img");
+    const st = (im && im.getAttribute("style") || "").match(/object-position:\s*([^;"]+)/);
+    const span = a.querySelector(".mnp-card__label span");
+    const parts = span ? span.innerHTML.split(/<br\s*\/?>/i).map(h => { const t = document.createElement("textarea"); t.innerHTML = h.replace(/<[^>]+>/g, ""); return clean(t.value); }) : [""];
+    out.cards.push({href: a.getAttribute("href") || "", img: im ? (im.getAttribute("data-src") || im.getAttribute("src") || "") : "",
+                    alt: clean(im ? im.getAttribute("alt") : ""), pos: st ? clean(st[1]) : "", label_1: parts[0] || "", label_2: parts.slice(1).join(" ")});
+  });
+  out.cards.forEach(c => { if (c.pos === "50% 50%") c.pos = ""; });
+  return {data: out, xmas: !!d.querySelector(".mnp-xmas-gift"), markers: htmlStr.includes("MNP:CATS-START")};
+}
+async function readHome(){
+  // "&t=" unico: senza, il proxy di SiteGround puo' restituire una Home VECCHIA (visto l'11/11/2026)
+  const r = await fetch(PAGE_API + "&t=" + Date.now(), {cache: "no-store"});
+  if (!r.ok) throw new Error("http " + r.status);
+  return parseHome((await r.json()).content.rendered);
+}
+async function loadLinks(){
+  links = [{href: SITE + "/shop/", name: "Tutto il negozio", group: "Pagine"}, {href: SITE + "/blog/", name: "Blog", group: "Pagine"}];
+  try{
+    const cats = await (await fetch(CATS_API + "&t=" + Date.now(), {cache: "no-store"})).json();
+    const nice = s => s.toLowerCase().replace(/(^|[\s/(-])(\S)/g, (m, a, b) => a + b.toUpperCase());
+    const top = cats.filter(c => !c.parent && c.count > 0 && !/senza-categoria/.test(c.link)).sort((a, b) => a.name.localeCompare(b.name));
+    top.forEach(c => {
+      links.push({href: c.link, name: nice(c.name), group: "Categorie"});
+      cats.filter(s => s.parent === c.id && s.count > 0).sort((a, b) => a.name.localeCompare(b.name))
+          .forEach(s => links.push({href: s.link, name: "   " + nice(c.name) + " › " + nice(s.name), group: "Categorie"}));
+    });
+  }catch(e){ /* senza elenco categorie restano negozio, blog, prodotti e i link attuali */ }
+  try{
+    const j = await (await fetch("data/catalogo.json?t=" + Date.now(), {cache: "no-store"})).json();
+    catalog = (j.products || []).filter(p => p.link).map(p => ({name: p.name, link: p.link, photo: (p.imgs && p.imgs[0] && p.imgs[0].src) || ""}))
+                                .sort((a, b) => a.name.localeCompare(b.name));
+  }catch(e){ catalog = []; }
+  const dl = $("prodList") || document.body.appendChild(Object.assign(document.createElement("datalist"), {id: "prodList"}));
+  dl.innerHTML = catalog.map(p => `<option value="${esc(p.name)}">`).join("");
+}
+const productByLink = href => catalog.find(p => p.link === href);
+const isProduct = href => href.startsWith(SITE + "/prodotto/");
+
+// ------------------------------------------------------------ anteprima
+function renderPreview(){
+  if (!state) return;
+  const n = state.cards.length;
+  const cards = state.cards.map((c, i) => `<div class="mnp-card${/calendario-dellavvento/.test(c.href) ? " cal" : ""}"><span class="n">${i + 1}</span>
+      <img src="${esc(c.photo || c.img || "")}" alt="" style="${c.pos ? "object-position:" + esc(c.pos) : ""}">
+      <div class="lab"><span>${esc(c.label_1)}${c.label_2 ? "<br>" + esc(c.label_2) : ""}</span><span class="arw">&#8594;</span></div></div>`).join("");
+  $("pv").className = "pv" + (xmas ? " xmas" : "");
+  $("pv").innerHTML = `<div class="mnp-rule"><div class="mnp-script">${esc(state.title)}</div></div>
+    <div class="mnp-heart">${xmas ? "&#10023;&nbsp;&nbsp;&#10022;&nbsp;&nbsp;&#10023;" : "&#9825;"}</div>
+    ${state.claim ? `<p class="mnp-claim">${esc(state.claim)}</p>` : ""}<div class="cats" style="--n:${n}">${cards}</div>`;
+}
+
+// ------------------------------------------------------------ editor delle schede
+function linkOptions(href, wantProduct){
+  const groups = {}; links.forEach(l => (groups[l.group] = groups[l.group] || []).push(l));
+  let known = links.some(l => l.href === href);
+  let html = Object.entries(groups).map(([g, ls]) => `<optgroup label="${g}">` + ls.map(l => `<option value="${esc(l.href)}"${l.href === href ? " selected" : ""}>${esc(l.name).replace(/^ {3}/, "&nbsp;&nbsp;&nbsp;")}</option>`).join("") + "</optgroup>").join("");
+  html += `<optgroup label="Prodotti"><option value="__product"${isProduct(href) || wantProduct ? " selected" : ""}>Un prodotto (scrivi il nome qui sotto)</option></optgroup>`;
+  if (!known && !isProduct(href) && href) html = `<option value="${esc(href)}" selected>Link attuale: ${esc(href.replace(SITE, ""))}</option>` + html;
+  return html;
+}
+function posOptions(pos){
+  let html = POSITIONS.map(([v, t]) => `<option value="${v}"${v === pos ? " selected" : ""}>${t}</option>`).join("");
+  if (!POSITIONS.some(p => p[0] === pos)) html = `<option value="${esc(pos)}" selected>Come adesso</option>` + html;
+  return html;
+}
+function cardChanged(c, i){
+  const o = original.cards[i];
+  return !o || c.photo || ["href", "img", "alt", "pos", "label_1", "label_2"].some(k => clean(c[k]) !== clean(o[k]));
+}
+function renderCards(){
+  const box = $("cards"); box.innerHTML = "";
+  state.cards.forEach((c, i) => {
+    const prod = isProduct(c.href) ? productByLink(c.href) : null;
+    const el = document.createElement("div");
+    el.className = "ed" + (cardChanged(c, i) ? " changed" : "");
+    el.innerHTML = `
+      <div class="ed-head"><b>Scheda ${i + 1}</b>
+        <span class="ed-tools">
+          <button class="btn alt small" data-a="up" type="button" ${i === 0 ? "disabled" : ""} aria-label="Sposta a sinistra">↑ Prima</button>
+          <button class="btn alt small" data-a="down" type="button" ${i === state.cards.length - 1 ? "disabled" : ""} aria-label="Sposta a destra">↓ Dopo</button>
+          <button class="btn alt small" data-a="del" type="button" ${state.cards.length <= MIN_CARDS ? "disabled" : ""}>Togli</button>
+        </span></div>
+      <div class="ed-photo"><img src="${esc(c.photo || c.img || "")}" alt="" style="${c.pos ? "object-position:" + esc(c.pos) : ""}">
+        <div class="pb"><input type="file" accept="image/jpeg,image/png,image/webp" hidden>
+          <button class="btn alt small" data-a="photo" type="button">Cambia la foto</button>
+          ${prod && prod.photo && prod.photo !== c.img ? `<button class="btn alt small" data-a="prodphoto" type="button">Usa la foto del prodotto</button>` : ""}
+          ${c.photo ? `<button class="btn alt small" data-a="undo" type="button">Annulla la foto nuova</button>` : ""}
+          <span class="hint">${c.photo ? "Foto nuova: " + esc(c.photoName) : (c.img ? "Si usa quella di adesso." : "Manca la foto: scegline una.")}</span></div></div>
+      <label>Inquadratura della foto <span class="hint">la casella è quadrata: scegli quale parte si vede</span></label>
+      <select data-k="pos">${posOptions(c.pos)}</select>
+      <div class="two">
+        <div><label>Scritta, riga 1</label><input type="text" data-k="label_1" maxlength="24" value="${esc(c.label_1)}"></div>
+        <div><label>Riga 2 <span class="hint">se serve</span></label><input type="text" data-k="label_2" maxlength="24" value="${esc(c.label_2)}"></div>
+      </div>
+      <label>Dove porta la scheda?</label>
+      <select data-k="href">${linkOptions(c.href, c.wantProduct)}</select>
+      <div class="prod" ${isProduct(c.href) || c.wantProduct ? "" : "hidden"}>
+        <label>Nome del prodotto <span class="hint">inizia a scrivere e scegli dall'elenco</span></label>
+        <input type="text" data-k="prodname" list="prodList" value="${esc(prod ? prod.name : "")}" placeholder="es. Calendario dell'Avvento">
+        <div class="hint pmsg">${isProduct(c.href) && !prod ? "Prodotto attuale: " + esc(c.href.replace(SITE, "")) : ""}</div>
+      </div>
+      <details><summary>Descrizione della foto (per Google)</summary>
+        <input type="text" data-k="alt" maxlength="100" value="${esc(c.alt)}" style="margin-top:8px">
+        <div class="hint">Si aggiorna da sola quando cambi la scritta. Puoi lasciarla così.</div></details>`;
+    el.addEventListener("click", ev => onCardButton(ev, i, el));
+    el.addEventListener("input", ev => onCardInput(ev, i, el));
+    el.addEventListener("change", ev => onCardInput(ev, i, el, true));
+    box.appendChild(el);
+  });
+  $("addCard").disabled = state.cards.length >= MAX_CARDS;
+  $("addCard").textContent = state.cards.length >= MAX_CARDS ? "Massimo " + MAX_CARDS + " schede" : "+ Aggiungi una scheda";
+  renderPreview();
+}
+function onCardInput(ev, i, el, isChange){
+  const k = ev.target.dataset.k; if (!k) return;
+  const c = state.cards[i];
+  if (k === "label_1" || k === "label_2"){
+    c[k] = ev.target.value;
+    if (c.altAuto) { c.alt = join(c); const a = el.querySelector('[data-k="alt"]'); if (a) a.value = c.alt; }
+  } else if (k === "alt"){ c.alt = ev.target.value; c.altAuto = false; }
+  else if (k === "pos"){ c.pos = ev.target.value; el.querySelector(".ed-photo img").style.objectPosition = c.pos || ""; }
+  else if (k === "href"){
+    if (ev.target.value === "__product"){
+      if (!isProduct(c.href)){ c.href = ""; c.wantProduct = true; }      // finche' non sceglie il prodotto, Pubblica lo segnala
+      el.querySelector(".prod").hidden = false; el.querySelector('[data-k="prodname"]').focus();
+    } else { c.href = ev.target.value; c.wantProduct = false; el.querySelector(".prod").hidden = true; }
+  } else if (k === "prodname"){
+    const p = catalog.find(x => norm(x.name) === norm(ev.target.value));
+    const msg = el.querySelector(".pmsg");
+    if (p){ c.href = p.link; c.wantProduct = false; msg.textContent = "Porta a: " + p.link.replace(SITE, ""); if (isChange) renderCards(); }
+    else msg.textContent = ev.target.value ? "Scegli un prodotto dall'elenco che compare mentre scrivi." : "";
+  }
+  el.classList.toggle("changed", cardChanged(c, i));
+  renderPreview();
+}
+async function onCardButton(ev, i, el){
+  const a = ev.target.dataset && ev.target.dataset.a; if (!a) return;
+  const cards = state.cards;
+  if (a === "up" && i > 0){ [cards[i - 1], cards[i]] = [cards[i], cards[i - 1]]; original.cards.splice(i - 1, 2, original.cards[i], original.cards[i - 1]); }
+  else if (a === "down" && i < cards.length - 1){ [cards[i + 1], cards[i]] = [cards[i], cards[i + 1]]; original.cards.splice(i, 2, original.cards[i + 1], original.cards[i]); }
+  else if (a === "del"){
+    if (!confirm(`Vuoi togliere la scheda ${i + 1} («${join(cards[i])}»)? La vedi sparire nell'anteprima; dal sito sparisce solo quando premi Pubblica.`)) return;
+    cards.splice(i, 1); original.cards.splice(i, 1);
+  }
+  else if (a === "undo"){ cards[i].photo = null; cards[i].photoName = ""; }
+  else if (a === "prodphoto"){ const p = productByLink(cards[i].href); if (p){ cards[i].img = p.photo; cards[i].photo = null; } }
+  else if (a === "photo"){
+    const inp = el.querySelector("input[type=file]");
+    inp.onchange = async () => {
+      const f = inp.files[0]; if (!f) return;
+      try{
+        const r = await resizeToJpeg(f);
+        if (r.w < MIN_PHOTO_W){ say("err", `Questa foto è troppo piccola (${r.w} px). Scegline una più grande (almeno ${MIN_PHOTO_W} px di larghezza).`); return; }
+        cards[i].photo = r.url; cards[i].photoName = f.name; say("", ""); renderCards();
+      }catch(e){ say("err", "Non riesco ad aprire questa foto. Prova con un'altra (JPG o PNG)."); }
+    };
+    inp.click(); return;
+  }
+  else return;
+  renderCards();
+}
+$("addCard").onclick = () => {
+  if (state.cards.length >= MAX_CARDS) return;
+  state.cards.push({href: SITE + "/shop/", img: "", alt: "Nuova scheda", pos: "", label_1: "Nuova scheda", label_2: "", photo: null, photoName: "", altAuto: true});
+  original.cards.push(null);
+  renderCards();
+  say("wait", "Scheda aggiunta in fondo: scegli la foto, la scritta e dove porta.");
+  $("cards").lastElementChild.scrollIntoView({behavior: "smooth", block: "center"});
+};
+["title", "claim"].forEach(k => $(k).addEventListener("input", () => { state[k] = $(k).value; renderPreview(); }));
+
+// foto: ridotta nel browser a max 1000 px, JPEG, trasparenze su fondo BIANCO (altrimenti diventerebbero nere)
+function resizeToJpeg(file, maxW = 1000, q = .86){
+  return new Promise((res, rej) => { const fr = new FileReader(); fr.onerror = rej;
+    fr.onload = () => { const im = new Image(); im.onerror = rej;
+      im.onload = () => { const sc = Math.min(1, maxW / im.width), c = document.createElement("canvas");
+        c.width = Math.round(im.width * sc); c.height = Math.round(im.height * sc);
+        const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
+        res({url: c.toDataURL("image/jpeg", q), w: im.width}); };
+      im.src = fr.result; }; fr.readAsDataURL(file); });
+}
+
+// ------------------------------------------------------------ invio
+function say(kind, text){ const m = $("msg"); m.className = "msg " + kind; m.textContent = text; }
+function buildRequest(){
+  const req = {action: "publish", title: clean(state.title), claim: clean(state.claim), cards: [], images: []};
+  state.cards.forEach((c, i) => {
+    req.cards.push({href: c.href, img: c.img || "", alt: clean(c.alt), pos: c.pos || "", label_1: clean(c.label_1), label_2: clean(c.label_2)});
+    if (c.photo) req.images.push({card: i, image_base64: c.photo.split(",")[1], image_mime: "image/jpeg"});
+  });
+  return req;
+}
+function problems(req){
+  const p = [];
+  if (!req.title) p.push("Il titolo in corsivo non può essere vuoto.");
+  req.cards.forEach((c, i) => {
+    if (!c.label_1) p.push(`Scheda ${i + 1}: manca la scritta (riga 1).`);
+    if (!c.img && !req.images.some(im => im.card === i)) p.push(`Scheda ${i + 1}: manca la foto.`);
+    if (!c.href) p.push(`Scheda ${i + 1}: scegli dove porta (se è un prodotto, sceglilo dall'elenco).`);
+  });
+  return p;
+}
+// a == b? (skipImg = indici delle schede con foto nuova: li' l'indirizzo della foto cambia sul sito, non si confronta)
+const sameAs = (a, b, skipImg = []) => norm(a.title) === norm(b.title) && norm(a.claim) === norm(b.claim) && a.cards.length === b.cards.length &&
+  a.cards.every((c, i) => c.href === b.cards[i].href && norm(c.label_1) === norm(b.cards[i].label_1) && norm(c.label_2) === norm(b.cards[i].label_2) &&
+                          (c.pos || "") === (b.cards[i].pos || "") && norm(c.alt || join(c)) === norm(b.cards[i].alt || join(b.cards[i])) &&
+                          (skipImg.includes(i) || c.img === b.cards[i].img));
+async function send(home_cards){
+  let payload;
+  try{ payload = await MNP.buildPayload({category: "home", product_id: "cards", status: "custom", home_cards}, home_cards); }
+  catch(e){ say("err", "La sessione è scaduta: torna al menu e accedi di nuovo."); return false; }
+  return MNP.post(payload);
+}
+async function afterSuccess(){
+  const r = await MNP.countAction();
+  if (r.closed){ alert("Hai fatto " + r.max + " modifiche: per sicurezza la sessione è finita. Rifai l'accesso per continuare."); location.replace("index.html?msg=limite"); return true; }
+  return false;
+}
+async function waitFor(check, ms = 180000){
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms){
+    await new Promise(r => setTimeout(r, 8000));
+    try{ const h = await readHome(); if (h && check(h.data)) return h; }catch(e){}
+  }
+  return null;
+}
+function lock(on){ $("publish").disabled = $("restore").disabled = $("addCard").disabled = on; }
+
+$("publish").onclick = async () => {
+  const req = buildRequest(), p = problems(req);
+  if (p.length){ say("err", p.join("\n")); return; }
+  if (!req.images.length && sameAs(req, original.full)){ say("ok", "Non hai cambiato niente: il sito è già così."); return; }
+  if (!confirm("Vuoi pubblicare queste schede sulla Home del sito?")) return;
+  lock(true); say("wait", "Sto inviando… non chiudere la pagina.");
+  if (!(await send(req))){ say("err", "Non sono riuscito a inviare. Controlla internet e riprova."); lock(false); return; }
+  say("wait", "Inviato! Sto aspettando che il sito si aggiorni (anche un paio di minuti)…");
+  const withPhoto = req.images.map(im => im.card);
+  const h = await waitFor(cur => sameAs(cur, req, withPhoto) && withPhoto.every(i => cur.cards[i].img && cur.cards[i].img !== req.cards[i].img));
+  if (h){ dirty = false; setState(h); say("ok", "✅ Fatto! Le schede della Home sono aggiornate."); lock(false); await afterSuccess(); return; }
+  say("wait", "La tua richiesta è stata inviata ed è al sicuro in coda, ma non vedo ancora la modifica sul sito. Se il sistema è spento per un momento, la modifica viene fatta da sola appena torna attivo: NON serve rifarla. Riguarda tra qualche minuto; se non cambia, avvisa Marco.");
+  lock(false);
+};
+$("restore").onclick = async () => {
+  if (!confirm("Vuoi rimettere le schede com'erano prima dell'ultima modifica? (La parte in alto della Home non cambia.)")) return;
+  lock(true); say("wait", "Sto inviando la richiesta…");
+  const before = original.full;
+  if (!(await send({action: "restore"}))){ say("err", "Non sono riuscito a inviare. Riprova."); lock(false); return; }
+  say("wait", "Richiesta inviata: aspetto che il sito torni com'era (circa un minuto)…");
+  const h = await waitFor(cur => !sameAs(cur, before), 120000);
+  if (h){ dirty = false; setState(h); say("ok", "✅ Fatto: le schede sono tornate alla versione di prima."); }
+  else say("wait", "Richiesta inviata. Se tra qualche minuto le schede non cambiano, non c'era una versione precedente da rimettere (ti avvisa anche Marco).");
+  lock(false); await afterSuccess();
+};
+
+// ------------------------------------------------------------ avvio
+let dirty = false;
+document.addEventListener("input", () => { dirty = true; });
+addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+function setState(h){
+  xmas = h.xmas; markers = h.markers;
+  const d = h.data;
+  original = {cards: d.cards.map(c => ({...c})), full: JSON.parse(JSON.stringify(d))};
+  state = {title: d.title, claim: d.claim, cards: d.cards.map(c => ({...c, photo: null, photoName: "", altAuto: !c.alt || norm(c.alt) === norm(join(c))}))};
+  $("title").value = state.title; $("claim").value = state.claim;
+  renderCards();
+}
+(async () => {
+  lock(true);
+  await loadLinks();
+  let h = null;
+  try{ h = await readHome(); }catch(e){}
+  if (!h){
+    say("err", "Non riesco a leggere la Home attuale. Ricarica la pagina (se continua, avvisa Marco).");
+    return;
+  }
+  setState(h);
+  lock(false);
+  if (!markers){
+    $("publish").disabled = $("restore").disabled = true;
+    say("err", "La Home non è ancora pronta per questa pagina (manca un segnaposto tecnico). Avvisa Marco: finché non è sistemato, Pubblica è bloccato.");
+  }
+})();
+</script>
+</body>
+</html>
