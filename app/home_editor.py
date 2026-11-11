@@ -315,23 +315,37 @@ def publish_hero(wp: WP, backup_dir: Path, raw_fields: dict, image_bytes: bytes 
 
 
 def restore_previous(wp: WP, backup_dir: Path) -> dict:
-    """Rimette il contenuto salvato PRIMA dell'ultima pubblicazione (il file *_PRIMA piu' recente)."""
+    """Rimette la PARTE ALTA (blocco hero + foto) salvata PRIMA dell'ultima pubblicazione (il file *_PRIMA piu' recente).
+    Il resto della Home resta com'e' ADESSO: dall'11/11/2026 non si rimette piu' l'intera pagina, che avrebbe cancellato
+    le modifiche fatte nel frattempo da altri (es. la scheda 'Calendario dell'Avvento' aggiunta a mano).
+    Prima di scrivere salva comunque l'intera pagina attuale (*_PRIMA-RIPRISTINO): si puo' sempre tornare indietro."""
     files = sorted(backup_dir.glob("*_PRIMA.html"))
     if not files:
         raise HeroError("Non ho nessuna versione precedente da ripristinare.")
     target = files[-1]
     old = target.read_text(encoding="utf-8")
-    if len(HERO_RE.findall(old)) != 1:
+    if len(HERO_RE.findall(old)) != 1 or len(IMG_RE.findall(old)) != 1:
         raise HeroError("La versione salvata e' piu' vecchia del sistema di modifica: ripristinala a mano dalle revisioni WordPress.")
     current, page = wp.get_page_raw()
+    if len(HERO_RE.findall(current)) != 1 or len(IMG_RE.findall(current)) != 1:
+        raise HeroError("Nella Home non trovo i marcatori attesi (qualcuno ha modificato la pagina a mano?). Non tocco nulla.")
     _save_backup(backup_dir, current, {"page": PAGE_ID, "modified": page.get("modified")}, "PRIMA-RIPRISTINO")
-    wp.set_page_content(old)
-    saved, _ = wp.get_page_raw()
-    if saved != old:
-        raise HeroError("Ripristino non verificato: controlla la Home e le revisioni WordPress.")
+    old_hero, old_img = HERO_RE.search(old).group(0), IMG_RE.search(old).group(0)
+    new = HERO_RE.sub(lambda m: old_hero, current, count=1)
+    new = IMG_RE.sub(lambda m: old_img, new, count=1)
+    # rete di sicurezza: a parte hero e foto il resto deve restare identico a quello pubblicato ora
+    strip = lambda c: IMG_RE.sub("", HERO_RE.sub("", c))
+    if strip(new) != strip(current):
+        raise HeroError("Controllo interno fallito: il resto della pagina risulterebbe diverso. Non ripristino.")
+    if new != current:
+        wp.set_page_content(new)
+        saved, _ = wp.get_page_raw()
+        if saved != new:
+            wp.set_page_content(current)
+            raise HeroError("Ripristino non verificato: ho rimesso la versione di prima. Controlla la Home e le revisioni WordPress.")
     target.rename(target.with_name(target.stem + "_USATO.html"))
     target.with_suffix(".json").rename(target.with_name(target.stem + "_USATO.json"))
-    return {"restored_from": target.name, "after": parse_current(old)}
+    return {"restored_from": target.name, "after": parse_current(new)}
 
 
 # ------------------------------------------------------------------ firma richiesta (opzionale)
