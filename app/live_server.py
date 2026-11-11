@@ -634,9 +634,61 @@ def github_headers():
     }
 
 
+class GitHubAuthError(Exception):
+    """GitHub rifiuta il token (401): token scaduto o revocato. NON e' un problema di rete."""
+
+
+# Avvisi di scadenza del token GitHub (11/11/2026: il token fine-grained e' scaduto senza preavviso e le modifiche
+# di Miriam venivano rifiutate). GitHub manda la data di scadenza in ogni risposta: avvisiamo PRIMA che scada.
+TOKEN_EXPIRY_WARN_DAYS = (14, 7, 3, 1)
+TOKEN_EXPIRY_STATE = LOGS_DIR / "github_token_avvisi.json"
+_token_expiry_seen = None
+
+
+def check_token_expiry(resp) -> None:
+    """Legge l'intestazione 'github-authentication-token-expiration' e manda UN avviso Telegram per ogni soglia
+    (14/7/3/1 giorni). Le soglie gia' avvisate sono salvate su file (niente doppioni dopo un riavvio). Mai bloccante."""
+    global _token_expiry_seen
+    try:
+        raw = resp.headers.get("github-authentication-token-expiration")
+        if not raw:
+            return
+        if raw != _token_expiry_seen:
+            _token_expiry_seen = raw
+            logger.info(f"Token GitHub del bot: scadenza {raw}.")
+        from datetime import datetime, timezone
+        exp = datetime.strptime(raw.replace("UTC", "").strip(), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        days_left = (exp - datetime.now(timezone.utc)).total_seconds() / 86400
+        due = [d for d in TOKEN_EXPIRY_WARN_DAYS if days_left <= d]
+        if not due:
+            return
+        threshold = min(due)
+        try:
+            state = json.loads(TOKEN_EXPIRY_STATE.read_text(encoding="utf-8"))
+        except Exception:
+            state = {}
+        sent = state.get(raw, [])
+        if threshold in sent:
+            return
+        notify(
+            f"🔑 My Nails: il token GitHub del bot scade il {exp.strftime('%d/%m/%Y')} (tra {max(0, int(days_left))} giorni).\n"
+            "Quando scade, le modifiche di Miriam alla Home e al sito vengono RIFIUTATE.\n"
+            "Rinnovalo PRIMA: GitHub > Settings > Developer settings > Fine-grained tokens (repo Script-My-Nails-Professional, "
+            "Contents: Read and write, scadenza lunga), poi mettilo nel .env del bot (GITHUB_TOKEN) E nel Worker Cloudflare "
+            "mynails-live-proxy (secret GITHUB_TOKEN) e riavvia il bot."
+        )
+        state = {raw: sorted(set(sent) | set(d for d in TOKEN_EXPIRY_WARN_DAYS if d >= threshold))}
+        TOKEN_EXPIRY_STATE.write_text(json.dumps(state), encoding="utf-8")
+    except Exception:
+        logger.exception("Controllo scadenza token GitHub non riuscito (ignorato)")
+
+
 def list_queue_files():
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/queue"
     r = requests.get(url, headers=github_headers(), params={"ref": GITHUB_BRANCH}, timeout=20)
+    if r.status_code == 401:
+        raise GitHubAuthError("GitHub rifiuta il token del bot (401 Bad credentials): token scaduto o revocato")
+    check_token_expiry(r)
     if r.status_code == 404:
         return []
     r.raise_for_status()
@@ -898,12 +950,24 @@ def github_queue_polling_loop():
                             logger.warning(f"Voce di coda {f['name']} non riuscita (tentativo {attempts}/{QUEUE_MAX_ATTEMPTS}), la ritento al prossimo ciclo.")
                 except Exception:
                     logger.exception(f"Errore elaborando {f.get('name')}")
+        except GitHubAuthError as e:
+            pause, _alert, verbose = health.failure()
+            pause = max(pause, 60)
+            if verbose:
+                logger.error(f"Polling della coda GitHub (fallimento n. {health.fails}): {e}")
+            if not health.alerted:                       # avviso SUBITO (non dopo 10 minuti) e una sola volta
+                health.alerted = True
+                notify("🔑 My Nails: GitHub RIFIUTA il token del bot (scaduto o revocato). Non e' un problema di rete.\n"
+                       "Finche' non si rinnova, le modifiche di Miriam alla Home e al sito NON vengono pubblicate "
+                       "(e l'invio dalla pagina fallisce se e' scaduto anche il token del Worker).\n"
+                       "Rigenera il token (repo Script-My-Nails-Professional, Contents: Read and write), mettilo nel .env "
+                       "del bot (GITHUB_TOKEN) E nel Worker Cloudflare mynails-live-proxy, poi riavvia il bot.")
         except Exception as e:
             pause, alert, verbose = health.failure()
             if verbose:
                 logger.warning(f"Errore nel polling della coda GitHub (fallimento n. {health.fails}), riprovo tra {pause}s: {e}")
             if alert:
-                notify("⚠️ My Nails: da oltre 10 minuti non riesco a contattare GitHub (rete o DNS del telefono: controlla Wi-Fi/VPN). "
+                notify("⚠️ My Nails: da oltre 10 minuti non riesco a contattare GitHub (rete o DNS del PC: controlla la connessione). "
                        "Le richieste di Miriam restano in coda e verranno elaborate appena la rete torna.")
         finally:
             _queue_busy.clear()
