@@ -127,7 +127,8 @@ function fill(v){ FIELDS.forEach(k => $(k).value = v[k] ?? ""); renderPreview();
 async function loadCurrent(){
   fill(DEFAULTS); $("photoThumb").src = IMG_DEFAULT;
   try{
-    const r = await fetch(PAGE_API, {cache:"no-store"}); const j = await r.json();
+    // "&t=" unico: senza, il proxy di SiteGround (cache per Origin) restituiva una Home VECCHIA (visto l'11/11/2026: quella di ottobre)
+    const r = await fetch(PAGE_API + "&t=" + Date.now(), {cache:"no-store"}); const j = await r.json();
     return parseHero(j.content.rendered);
   }catch(e){ return null; }
 }
@@ -218,6 +219,11 @@ $("restore").onclick = async () => {
 (async () => {
   const cur = await loadCurrent();
   if (cur){ currentImg = cur._img; fill(cur); $("photoThumb").src = currentImg; }
+  else {
+    // senza i valori veri il modulo mostrerebbe un ESEMPIO (settembre): pubblicarlo cancellerebbe la Home attuale
+    $("publish").disabled = true;
+    say("err", "Non riesco a leggere la Home attuale: qui sotto vedi solo un esempio, NON quello che c'è sul sito. Ricarica la pagina (se continua, avvisa Marco).");
+  }
 })();
 </script>
 </body>
