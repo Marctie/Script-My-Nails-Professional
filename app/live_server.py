@@ -608,7 +608,10 @@ def refresh_catalog_async() -> None:
 
 # Blocchi di prezzi (pagina prezzi.html): ogni prodotto e' una richiesta normale con in piu' req["batch"] = {id, n, total, cat, rule}.
 # Qui si tiene il conto per mandare UN riepilogo su Telegram quando il blocco e' finito.
+# Dal 12/11/2026 un blocco conta come UNA modifica della sessione (registrata a blocco finito, se almeno un prezzo e' cambiato):
+# prima ogni prodotto contava 1 e i blocchi oltre 30 prodotti (es. COLOR GEL, 59) non si potevano fare.
 _BATCHES: dict = {}
+MAX_BATCH = 150
 
 
 def batch_line(data: dict) -> str:
@@ -618,8 +621,8 @@ def batch_line(data: dict) -> str:
     return f"📦 Blocco prezzi: prodotto {b.get('n')} di {b.get('total')} · categoria {str(b.get('cat'))[:60]} · regola: {str(b.get('rule'))[:100]}\n"
 
 
-def batch_note(data: dict, uid_name: str, outcome: str, label: str, detail: str = "") -> None:
-    """outcome: ok | skip | fail. Quando il numero di esiti arriva a total manda il riepilogo."""
+def batch_note(data: dict, uid_name: str, outcome: str, label: str, detail: str = "", uid: str = "", at=None) -> None:
+    """outcome: ok | skip | fail. Quando il numero di esiti arriva a total manda il riepilogo (e conta il blocco come una modifica)."""
     b = data.get("batch")
     if not isinstance(b, dict) or not b.get("id"):
         return
@@ -632,6 +635,9 @@ def batch_note(data: dict, uid_name: str, outcome: str, label: str, detail: str 
                f"📂 categoria {str(st['cat'])[:60]} · regola: {str(st['rule'])[:100]}\n"
                f"✅ cambiati: {len(st['ok'])} · ℹ️ senza differenza: {len(st['skip'])} · ⚠️ NON eseguiti: {len(st['fail'])} (su {st['total']})\n"
                f"🕒 {fmt_t(time.time())}")
+        if uid and st["ok"]:
+            counter = record_session_action(uid, f"blocco prezzi {str(st['cat'])[:40]} ({len(st['ok'])} prodotti, {str(st['rule'])[:60]})", at)
+            msg += f"\n🔢 {counter} (tutto il blocco conta come una modifica)"
         if st["fail"]:
             msg += "\n⚠️ Da sistemare a mano:\n" + "\n".join("• " + x for x in st["fail"][:40])
         notify(msg)
@@ -652,6 +658,18 @@ def process_site_edit(payload: dict) -> bool:
         return True
     kind = data.get("kind")
     kl = {"page": "pagina", "post": "articolo", "product": "prodotto"}.get(kind, str(kind))
+    at = payload.get("_queued_at")
+    batch = data.get("batch") if isinstance(data.get("batch"), dict) else None
+    if batch:
+        try:
+            too_big = int(batch.get("total") or 0) > MAX_BATCH
+        except (TypeError, ValueError):
+            too_big = True
+        if too_big:
+            STATS["rejected"] += 1
+            notify(f"🚫 SITO: blocco prezzi di {name} rifiutato: piu' di {MAX_BATCH} prodotti in un colpo solo." + chr(10) + "Nessuna modifica fatta.")
+            _mark_seen(payload)
+            return True
     what = describe_request(data) if data.get("action") != "restore" else ["Chiede di tornare alla versione precedente."]
     notify(f"📥 {name} ha inviato una modifica del SITO — elaboro…\n{batch_line(data)}📄 {kl} #{data.get('id')}\n🕒 {fmt_t(time.time())}\n"
            + "\n".join("• " + w for w in what[:20]))
@@ -673,7 +691,7 @@ def process_site_edit(payload: dict) -> bool:
         STATS["rejected"] += 1
         logger.warning(f"Sito: richiesta non eseguita: {e}")
         notify(f"⚠️ SITO: modifica di {name} NON eseguita — {e}\n{batch_line(data)}📄 {kl} #{data.get('id')}\nIl sito e' rimasto com'era.")
-        batch_note(data, name, "fail", f"{kl} #{data.get('id')}", str(e)[:120])
+        batch_note(data, name, "fail", f"{kl} #{data.get('id')}", str(e)[:120], uid, at)
         _mark_seen(payload)
         return True
     except requests.RequestException as e:
@@ -685,7 +703,7 @@ def process_site_edit(payload: dict) -> bool:
     _mark_seen(payload)
     if not r["changed"]:
         notify(f"ℹ️ SITO: nessuna differenza rispetto a quanto gia' pubblicato ({name}, {kl} #{data.get('id')}), non ho cambiato nulla.")
-        batch_note(data, name, "skip", f"{kl} #{data.get('id')}")
+        batch_note(data, name, "skip", f"{kl} #{data.get('id')}", "", uid, at)
         return True
     STATS["published"] += 1
     record_event({"action": f"sito aggiornato {r['kind']} {r['id']}"})
@@ -693,7 +711,10 @@ def process_site_edit(payload: dict) -> bool:
         refresh_catalog_async()
     n_t = len(data.get("texts") or []) + (1 if data.get("title") else 0)
     n_i = len(data.get("images") or [])
-    counter = record_session_action(uid, f"{kl} «{r.get('title')}»: {n_t} testi, {n_i} foto" + (", prezzo" if data.get("prices") else ""), payload.get("_queued_at"))
+    if batch:   # il blocco si conta una volta sola, quando e' finito (batch_note)
+        counter = f"Blocco prezzi: prodotto {batch.get('n')} di {batch.get('total')} (tutto il blocco conta come una modifica)"
+    else:
+        counter = record_session_action(uid, f"{kl} «{r.get('title')}»: {n_t} testi, {n_i} foto" + (", prezzo" if data.get("prices") else ""), at)
     lines = "\n".join("• " + x for x in r["summary"][:40])
     notify(
         f"✅ SITO AGGIORNATO — 👤 {name}\n{batch_line(data)}📄 {kl} «{r.get('title')}» (#{r['id']})\n🕒 {fmt_t(time.time())}\n{lines}\n"
@@ -701,7 +722,7 @@ def process_site_edit(payload: dict) -> bool:
         f"Backup: {Path(r['backup']).name}\n🔢 {counter}\n"
         "Per tornare indietro: «Torna alla versione di prima» nella pagina di modifica."
     )
-    batch_note(data, name, "ok", f"«{r.get('title')}» (#{r['id']})")
+    batch_note(data, name, "ok", f"«{r.get('title')}» (#{r['id']})", "", uid, at)
     return True
 
 
