@@ -83,7 +83,8 @@ input[type=text],select{width:100%;font:inherit;padding:12px;border:1px solid va
             <option value="pct_down">Diminuisci del … %</option>
             <option value="eur_up">Aumenta di … €</option>
             <option value="eur_down">Diminuisci di … €</option>
-            <option value="set">Metti lo stesso prezzo a tutti: … €</option>
+            <option value="set">Metti lo stesso prezzo a tutti: … € (lo sconto resta)</option>
+            <option value="set_full">Prezzo pieno per tutti, SENZA sconto: … €</option>
             <option value="sale_pct">Metti in SCONTO del … % (prezzo normale barrato)</option>
             <option value="sale_set">Metti in SCONTO a prezzo fisso: … €</option>
             <option value="sale_off">Togli lo sconto (torna il prezzo normale)</option>
@@ -132,7 +133,7 @@ const say = (id, k, t) => { const m = $(id); m.className = "msg " + (k || ""); m
 const getJSON = async url => { const r = await fetch(url + (url.includes("?")?"&":"?") + "t=" + Date.now(), {cache:"no-store"}); if (!r.ok) throw new Error(r.status); return r.json(); };
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const r2 = x => Math.round((x + Number.EPSILON) * 100) / 100;
-const PRICE_MAX = 9999.99, JUMP = 0.5;
+const PRICE_MAX = 9999.99, JUMP = 0.5, MAX_BLOCK = 150;   // un blocco conta come UNA modifica della sessione (max 150 prodotti)
 
 let stale = new Set(), staleErr = false, products = [], cat = null, plan = [], ov = {}, ovs = {};   // ov: prezzi scritti a mano per singolo prodotto
 
@@ -156,6 +157,7 @@ function compute(p, rl){
     case "eur_up":   nr = reg + rl.v; ns = sale == null ? null : sale + rl.v; break;
     case "eur_down": nr = reg - rl.v; ns = sale == null ? null : sale - rl.v; break;
     case "set":      nr = rl.v; break;                                   // l'offerta non si tocca
+    case "set_full": nr = rl.v; ns = null; break;                        // prezzo pieno e via lo sconto
     case "sale_pct": nr = reg; ns = reg * (1 - rl.v/100); if (rl.v >= 100) return {skip:"lo sconto deve essere sotto il 100%"}; break;
     case "sale_set": nr = reg; ns = rl.v; break;
     case "sale_off": nr = reg; ns = null; if (sale == null) return {skip:"non e' in sconto"}; break;
@@ -164,6 +166,7 @@ function compute(p, rl){
   const out = {reg:nr, sale: ns == null ? "" : ns};
   if (!(nr > 0) || nr > PRICE_MAX) return {skip:"prezzo non valido (" + eur(nr) + ")"};
   if (ns != null && !(ns > 0 && ns < nr)) return {skip: rl.mode.startsWith("sale") ? "il prezzo scontato (" + eur(ns) + ") non e' sotto il prezzo normale" : "l'offerta non starebbe più sotto il prezzo"};
+  if (rl.mode === "set" && sale != null && nr === reg) return {skip:`il prezzo normale e' gia' ${eur(reg)} ma e' in SCONTO a ${eur(sale)} (il cliente vede ${eur(sale)}): per togliere lo sconto scegli «Prezzo pieno per tutti, SENZA sconto»`};
   if (nr === reg && (ns ?? "") === (sale ?? "")) return {skip:"resta uguale"};
   if (!rl.mode.startsWith("sale") && Math.abs(nr - reg) / reg > JUMP) return {skip:"cambia di più del 50%: da fare a mano"};
   return out;
@@ -215,7 +218,7 @@ function pickCat(k, btn){
 }
 
 // ---- schermata 2-3: regola e lista con anteprima
-const LABELS = {pct_up:["Quanto (%)","per esempio 10"], pct_down:["Quanto (%)","per esempio 10"], eur_up:["Quanto (€)","per esempio 1,50"], eur_down:["Quanto (€)","per esempio 1,50"], set:["Nuovo prezzo (€)","per esempio 12,90"], sale_pct:["Sconto (%)","per esempio 20"], sale_set:["Prezzo scontato (€)","per esempio 1,99"], sale_off:["",""]};
+const LABELS = {pct_up:["Quanto (%)","per esempio 10"], pct_down:["Quanto (%)","per esempio 10"], eur_up:["Quanto (€)","per esempio 1,50"], eur_down:["Quanto (€)","per esempio 1,50"], set:["Nuovo prezzo (€)","per esempio 12,90"], set_full:["Prezzo pieno (€)","per esempio 3,99"], sale_pct:["Sconto (%)","per esempio 20"], sale_set:["Prezzo scontato (€)","per esempio 1,99"], sale_off:["",""]};
 function recalc(rebuild){
   const [lbl, ph] = LABELS[$("mode").value]; $("valLbl").textContent = lbl; $("val").placeholder = ph;
   $("val").classList.toggle("hide", $("mode").value === "sale_off"); $("valLbl").classList.toggle("hide", $("mode").value === "sale_off");
@@ -224,11 +227,12 @@ function recalc(rebuild){
     pct_down:"Abbassa tutti i prezzi di una percentuale (senza barrato: è il nuovo prezzo normale).<em>Esempio: «Diminuisci del 10 %» → da 10,00 € a 9,00 €.</em>",
     eur_up:"Aggiunge la stessa cifra a tutti i prezzi.<em>Esempio: «Aumenta di 1,50 €» → da 10,00 € a 11,50 €.</em>",
     eur_down:"Toglie la stessa cifra a tutti i prezzi (senza barrato).<em>Esempio: «Diminuisci di 1,50 €» → da 10,00 € a 8,50 €.</em>",
-    set:"Tutti i prodotti scelti avranno lo stesso prezzo normale.<em>Esempio: «12,90» → tutti costeranno 12,90 €.</em>",
+    set:"Tutti i prodotti scelti avranno lo stesso prezzo normale. ATTENZIONE: se un prodotto è in sconto, lo sconto resta (e il cliente continua a vedere il prezzo scontato).<em>Esempio: «12,90» → tutti avranno 12,90 € come prezzo normale.</em>",
+    set_full:"Tutti i prodotti scelti avranno questo prezzo, SENZA sconto: sparisce il prezzo barrato.<em>Esempio: «3,99» su un prodotto da 3,99 € barrato e 1,99 € → il cliente vede 3,99 €.</em>",
     sale_pct:"METTE IN SCONTO: il prezzo di prima resta ma compare barrato, e il cliente vede il prezzo scontato (come in WooCommerce).<em>Esempio: sconto 20 % su un prodotto da 10,00 € → 10,00 € barrato e 8,00 €.</em>",
     sale_set:"METTE IN SCONTO tutti i prodotti allo stesso prezzo: il prezzo di prima resta barrato.<em>Esempio: «1,99» su un prodotto da 6,99 € → 6,99 € barrato e 1,99 €.</em>",
     sale_off:"TOGLIE LO SCONTO: sparisce il prezzo barrato e il prodotto torna al prezzo normale.<em>Esempio: 6,99 € barrato e 1,99 € → torna a 6,99 €.</em>"};
-  $("ruleNote").innerHTML = "<b>💡 Cosa fa:</b> " + EX[$("mode").value] + ($("mode").value.startsWith("sale") || $("mode").value === "set" ? "" : "<em>Se un prodotto è già in sconto, cambia anche il suo prezzo scontato.</em>");
+  $("ruleNote").innerHTML = "<b>💡 Cosa fa:</b> " + EX[$("mode").value] + ($("mode").value.startsWith("sale") || $("mode").value.startsWith("set") ? "" : "<em>Se un prodotto è già in sconto, cambia anche il suo prezzo scontato.</em>");
   const rl = rule(), list = products.filter(p => (p.cats || ["Senza categoria"]).includes(cat));
   if (rebuild){
     ov = {}; ovs = {}; $("rows").innerHTML = "";
@@ -269,13 +273,10 @@ $("toReview").onclick = () => {
   if (staleErr){ say("goMsg","err","Non riesco a controllare i prezzi sul sito vero: ricarica la pagina e riprova."); return; }
   if (!plan.length){ say("goMsg","err","Nessun prodotto da cambiare con queste scelte."); return; }
   const rem = remaining();
-  if (plan.length > rem){
-    say("goMsg","err", rem === 0 ? "Per sicurezza la sessione ha raggiunto il numero massimo di modifiche: esci e rientra." :
-      `Per sicurezza si possono fare al massimo ${MNP.MAX_ACTIONS} modifiche per accesso, e te ne restano ${rem}. Togli qualche prodotto dalla lista (ne hai scelti ${plan.length}), fai questo gruppo, poi esci, rientra e fai gli altri.`);
-    return;
-  }
+  if (rem < 1){ say("goMsg","err","Per sicurezza la sessione ha raggiunto il numero massimo di modifiche: esci e rientra."); return; }
+  if (plan.length > MAX_BLOCK){ say("goMsg","err",`Puoi cambiare al massimo ${MAX_BLOCK} prodotti in un colpo solo (ne hai scelti ${plan.length}): togli la spunta a qualcuno e fai gli altri dopo.`); return; }
   say("goMsg","","");
-  $("revText").innerHTML = `Stai per cambiare il prezzo di <b>${plan.length}</b> prodotti della categoria <b>${esc(cat)}</b> (${esc(($("val").value.trim() ? $("mode").selectedOptions[0].textContent.replace("…", $("val").value.trim()) : "prezzi scritti a mano"))}).<br>Ogni prodotto conta come una modifica (te ne restano ${rem}). Puoi tornare indietro prodotto per prodotto dall'editor «Cambia un prodotto» → «Torna alla versione di prima».`;
+  $("revText").innerHTML = `Stai per cambiare il prezzo di <b>${plan.length}</b> prodotti della categoria <b>${esc(cat)}</b> (${esc(($("val").value.trim() ? $("mode").selectedOptions[0].textContent.replace("…", $("val").value.trim()) : "prezzi scritti a mano"))}).<br>Tutto il blocco conta come <b>una sola</b> modifica (te ne restano ${rem}). Puoi tornare indietro prodotto per prodotto dall'editor «Cambia un prodotto» → «Torna alla versione di prima».`;
   say("rMsg","",""); $("bar").classList.add("hide");
   ["publish","cancelRev"].forEach(x => { $(x).classList.remove("hide"); $(x).disabled = false; }); $("doneBtn").classList.add("hide");
   $("vMain").classList.add("hide"); $("vReview").classList.remove("hide"); window.scrollTo(0,0);
@@ -322,7 +323,7 @@ $("jResume").onclick = () => {
     plan.push({p, nr:Number(i.nr), ns: i.ns === "" ? "" : Number(i.ns)}); });
   jSave(j); jShow();
   if (!plan.length){ alert("Questi prodotti risultano già a posto."); return; }
-  if (plan.length > remaining()){ alert(`Ne restano ${plan.length} da inviare ma in questo accesso ti restano ${remaining()} modifiche: esci, rientra e riprova.`); return; }
+  if (remaining() < 1){ alert("In questo accesso non ti restano modifiche: esci, rientra e riprova."); return; }
   cat = j.cat; resumeJ = true; $("revText").innerHTML = `Riprendo il lavoro lasciato a metà: <b>${plan.length}</b> prodotti (categoria <b>${esc(cat)}</b>).`;
   say("rMsg","",""); $("bar").classList.add("hide"); ["publish","cancelRev"].forEach(x => { $(x).classList.remove("hide"); $(x).disabled = false; }); $("doneBtn").classList.add("hide");
   $("vMain").classList.add("hide"); $("vReview").classList.remove("hide"); window.scrollTo(0,0);
@@ -349,10 +350,10 @@ $("publish").onclick = async () => {
     try{ ok = await sendOne(req); }catch(e){ say("rMsg","err","La sessione e' scaduta: torna al menu e accedi di nuovo."); break; }
     if (!ok){ failed.push(it); break; }
     sent++; bar(sent); jSet(it.p.id, "sent");
-    const r = await MNP.countAction();
-    if (r.closed){ closed = true; break; }
     await wait(1200);                       // un file di coda per volta, in ordine
   }
+  // tutto il blocco = UNA modifica della sessione (il sistema la conta quando il blocco e' finito)
+  if (sent > 0){ const r = await MNP.countAction(); closed = r.closed; }
   if (failed.length){ jShow(); say("rMsg","err",`Mi fermo: non sono riuscito a inviare «${failed[0].p.name}». Hai inviato ${sent} prodotti su ${items.length}; controlla internet e riprova con gli altri.`); $("publish").disabled = $("cancelRev").disabled = false; return; }
   // controllo sul sito vero: la data di modifica del prodotto cambia quando il telefono scrive
   const done = new Set(); const t0 = Date.now();
